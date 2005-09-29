@@ -1,0 +1,14 @@
+
+Creating a self-signed cert using the TPM engine:
+
+ Generate a TPM key and write it to a file:
+
+ $ write_key <keyfilename>
+
+Make the openssl certificate request:
+
+ $ openssl req -keyform engine -engine tpm -key <keyfilename> -new -x509 -days 365 -out <certfilename>
+
+Test using openssl:
+
+ $ openssl s_server -cert <certfilename> -www -accept 4433 -keyform engine -engine tpm -key <keyfilename>
