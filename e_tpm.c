@@ -227,9 +227,6 @@ static unsigned int (*p_tspi_Policy_SetSecret)();
  * "dynamic" ENGINE support too */
 static int bind_helper(ENGINE * e)
 {
-#ifndef OPENSSL_NO_RSA
-	const RSA_METHOD *meth1;
-#endif
 	if (!ENGINE_set_id(e, engine_tpm_id) ||
 	    !ENGINE_set_name(e, engine_tpm_name) ||
 #ifndef OPENSSL_NO_RSA
@@ -842,6 +839,7 @@ static int tpm_rsa_pub_enc(int flen,
 		return 0;
 	}
 
+	in_len = flen;
 	DBG("Bind: hKey(0x%x) hEncData(0x%x) in_len(%u)", app_data->hKey,
 	    app_data->hEncData, in_len);
 
