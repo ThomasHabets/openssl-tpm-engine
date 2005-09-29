@@ -39,7 +39,7 @@ AC_ARG_WITH(openssl,
 	 AC_SUBST([OPENSSL_LIB_DIR], [/usr/local/ssl/lib])
 	 AC_SUBST([OPENSSL_INCLUDE_DIR], [/usr/local/ssl/include]) ] )
 
-/* for the correct install target */
+# for the correct install target
 libdir="$OPENSSL_LIB_DIR/engines"
 
 AC_DISABLE_STATIC
