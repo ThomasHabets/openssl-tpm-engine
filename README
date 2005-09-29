@@ -3,7 +3,7 @@ Creating a self-signed cert using the TPM engine:
 
  Generate a TPM key and write it to a file:
 
- $ write_key <keyfilename>
+ $ create_tpm_key <keyfilename>
 
 Make the openssl certificate request:
 
