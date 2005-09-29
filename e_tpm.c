@@ -848,8 +848,8 @@ static int tpm_rsa_pub_enc(int flen,
 	if ((result = p_tspi_Data_Bind(app_data->hEncData, app_data->hKey,
 				       in_len, from))) {
 		TSSerr(TPM_F_TPM_RSA_PUB_ENC, TPM_R_REQUEST_FAILED);
-		fprintf(stderr, "result = 0x%x (%s)\n", result,
-			Trspi_Error_String(result));
+		DBG("result = 0x%x (%s)", result,
+		    Trspi_Error_String(result));
 		return 0;
 	}
 
