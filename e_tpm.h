@@ -52,6 +52,8 @@ void ERR_TSS_error(int function, int reason, char *file, int line);
 #define TPM_F_TPM_RSA_PUB_ENC			113
 #define TPM_F_TPM_RSA_PUB_DEC			114
 #define TPM_F_TPM_BIND_FN			115
+#define TPM_F_TPM_FILL_RSA_OBJECT		116
+#define TPM_F_TPM_ENGINE_GET_AUTH		117
 
 /* Reason codes. */
 #define TPM_R_ALREADY_LOADED			100
@@ -80,6 +82,7 @@ void ERR_TSS_error(int function, int reason, char *file, int line);
 #define TPM_R_FILE_NOT_FOUND			123
 #define TPM_R_FILE_READ_FAILED			124
 #define TPM_R_ID_INVALID			125
+#define TPM_R_UI_METHOD_FAILED			126
 
 /* structure pointed to by the RSA object's app_data pointer */
 struct rsa_app_data

@@ -280,6 +280,8 @@ static ERR_STRING_DATA TPM_str_functs[] = {
 	{ERR_PACK(0, TPM_F_TPM_RSA_PUB_ENC, 0), "TPM_RSA_PUB_ENC"},
 	{ERR_PACK(0, TPM_F_TPM_RSA_PUB_DEC, 0), "TPM_RSA_PUB_DEC"},
 	{ERR_PACK(0, TPM_F_TPM_BIND_FN, 0), "TPM_BIND_FN"},
+	{ERR_PACK(0, TPM_F_TPM_FILL_RSA_OBJECT, 0), "TPM_FILL_RSA_OBJECT"},
+	{ERR_PACK(0, TPM_F_TPM_ENGINE_GET_AUTH, 0), "TPM_ENGINE_GET_AUTH"},
 	{0, NULL}
 };
 
@@ -309,6 +311,7 @@ static ERR_STRING_DATA TPM_str_reasons[] = {
 	{TPM_R_FILE_NOT_FOUND, "file to load not found"},
 	{TPM_R_FILE_READ_FAILED, "failed reading the key file"},
 	{TPM_R_ID_INVALID, "engine id doesn't match"},
+	{TPM_R_UI_METHOD_FAILED, "ui function failed"},
 	{0, NULL}
 };
 

@@ -118,6 +118,7 @@ static int tpm_engine_init(ENGINE *);
 static int tpm_engine_finish(ENGINE *);
 static int tpm_engine_ctrl(ENGINE *, int, long, void *, void (*)());
 static EVP_PKEY *tpm_engine_load_key(ENGINE *, const char *, UI_METHOD *, void *);
+static char *tpm_engine_get_auth(UI_METHOD *, char *, int, char *);
 
 #ifndef OPENSSL_NO_RSA
 /* rsa functions */
@@ -271,10 +272,11 @@ void ENGINE_load_tpm(void)
 	ERR_clear_error();
 }
 
-int tpm_load_srk()
+int tpm_load_srk(UI_METHOD *ui)
 {
 	TSS_RESULT result;
 	TSS_HPOLICY hPolicy;
+	BYTE *auth;
 
 	if (hSRK != NULL_HKEY)
 		return 1;
@@ -292,14 +294,27 @@ int tpm_load_srk()
 		return 0;
 	}
 
-	/* XXX allow this to be specified through pre commands */
+	if ((auth = calloc(1, 128)) == NULL) {
+		TSSerr(TPM_F_TPM_LOAD_SRK, ERR_R_MALLOC_FAILURE);
+		return 0;
+	}
+
+	if (!tpm_engine_get_auth(ui, auth, 128, "SRK authorization: ")) {
+		p_tspi_Context_CloseObject(hContext, hSRK);
+		free(auth);
+		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
+	}
+
 	if ((result = p_tspi_Policy_SetSecret(hPolicy, TSS_SECRET_MODE_PLAIN,
-					      0, NULL))) {
+					      strlen(auth), auth))) {
 		p_tspi_Context_CloseObject(hContext, hSRK);
 		p_tspi_Context_CloseObject(hContext, hPolicy);
+		free(auth);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
+
+	free(auth);
 
 	return 1;
 }
@@ -462,9 +477,37 @@ err:
 	return 0;
 }
 
+static char *tpm_engine_get_auth(UI_METHOD *ui_method, char *auth, int maxlen,
+				 char *input_string)
+{
+	UI *ui;
+
+	DBG("%s", __FUNCTION__);
+
+	ui = UI_new();
+	if (ui_method)
+		UI_set_method(ui, ui_method);
+
+	if (!UI_add_input_string(ui, input_string, 0, auth, 0, maxlen)) {
+		TSSerr(TPM_F_TPM_ENGINE_GET_AUTH, TPM_R_UI_METHOD_FAILED);
+		UI_free(ui);
+		return NULL;
+	}
+
+	if (UI_process(ui)) {
+		TSSerr(TPM_F_TPM_ENGINE_GET_AUTH, TPM_R_UI_METHOD_FAILED);
+		UI_free(ui);
+		return NULL;
+	}
+
+	UI_free(ui);
+	return auth;
+}
+
 static int tpm_engine_finish(ENGINE * e)
 {
 	DBG("%s", __FUNCTION__);
+
 	if (tpm_dso == NULL) {
 		TSSerr(TPM_F_TPM_ENGINE_FINISH, TPM_R_NOT_LOADED);
 		return 0;
@@ -496,14 +539,14 @@ int fill_out_rsa_object(RSA *rsa, TSS_HKEY hKey)
 	if ((result = p_tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_ENCSCHEME,
 					     &encScheme))) {
-		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
+		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
 	if ((result = p_tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_SIGSCHEME,
 					     &sigScheme))) {
-		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
+		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
@@ -511,13 +554,13 @@ int fill_out_rsa_object(RSA *rsa, TSS_HKEY hKey)
 	if ((result = p_tspi_GetAttribData(hKey, TSS_TSPATTRIB_KEY_BLOB,
 					   TSS_TSPATTRIB_KEYBLOB_PUBLIC_KEY,
 					   &pubkey_len, &pubkey))) {
-		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
+		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
 	if ((rsa->n = BN_bin2bn(pubkey, pubkey_len, rsa->n)) == NULL) {
 		p_tspi_Context_FreeMemory(hContext, pubkey);
-		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_BN_CONVERSION_FAILED);
+		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_BN_CONVERSION_FAILED);
 		return 0;
 	}
 
@@ -525,26 +568,31 @@ int fill_out_rsa_object(RSA *rsa, TSS_HKEY hKey)
 
 	/* set e in the RSA object */
 	if (!rsa->e && ((rsa->e = BN_new()) == NULL)) {
-		TSSerr(TPM_F_TPM_RSA_KEYGEN, ERR_R_MALLOC_FAILURE);
+		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, ERR_R_MALLOC_FAILURE);
 		return 0;
 	}
 
 	if (!BN_set_word(rsa->e, 65537)) {
-		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
+		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_REQUEST_FAILED);
+		BN_free(rsa->e);
+		rsa->e = NULL;
 		return 0;
 	}
 
 	if ((app_data = OPENSSL_malloc(sizeof(struct rsa_app_data))) == NULL) {
-		TSSerr(TPM_F_TPM_RSA_KEYGEN, ERR_R_MALLOC_FAILURE);
+		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, ERR_R_MALLOC_FAILURE);
+		BN_free(rsa->e);
+		rsa->e = NULL;
 		return 0;
 	}
 
-	memset(app_data, 0, sizeof(struct rsa_app_data));
 	DBG("Setting hKey(0x%x) in RSA object", hKey);
-	app_data->hKey = hKey;
 	DBG("Setting encScheme(0x%x) in RSA object", encScheme);
-	app_data->encScheme = encScheme;
 	DBG("Setting sigScheme(0x%x) in RSA object", sigScheme);
+
+	memset(app_data, 0, sizeof(struct rsa_app_data));
+	app_data->hKey = hKey;
+	app_data->encScheme = encScheme;
 	app_data->sigScheme = sigScheme;
 	RSA_set_ex_data(rsa, ex_app_data, app_data);
 
@@ -556,11 +604,12 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 {
 	TSS_HKEY hKey;
 	TSS_RESULT result;
+	BYTE blob_buf[4096];
+	UINT32 authusage;
 	RSA *rsa;
 	EVP_PKEY *pkey;
 	BIO *bf;
 	int rc;
-	BYTE blob_buf[4096];
 
 
 	DBG("%s", __FUNCTION__);
@@ -570,20 +619,20 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 		return NULL;
 	}
 
-	if (!tpm_load_srk()) {
+	if (!tpm_load_srk(ui)) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_SRK_LOAD_FAILED);
 		return NULL;
 	}
 
 	if ((bf = BIO_new_file(key_id, "r")) == NULL) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
-				TPM_R_FILE_NOT_FOUND);
+		       TPM_R_FILE_NOT_FOUND);
 		return NULL;
 	}
 retry:
 	if ((rc = BIO_read(bf, &blob_buf[0], 4096)) < 0) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
-				TPM_R_FILE_READ_FAILED);
+		       TPM_R_FILE_READ_FAILED);
 		return NULL;
 	} else if (rc == 0 && BIO_should_retry(bf)) {
 		goto retry;
@@ -593,8 +642,55 @@ retry:
 	if ((result = p_tspi_Context_LoadKeyByBlob(hContext, hSRK, rc,
 					blob_buf, &hKey))) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
-				TPM_R_REQUEST_FAILED);
+		       TPM_R_REQUEST_FAILED);
 		return NULL;
+	}
+
+	if ((result = p_tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
+					     TSS_TSPATTRIB_KEYINFO_AUTHUSAGE,
+					     &authusage))) {
+		p_tspi_Context_CloseObject(hContext, hKey);
+		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
+		       TPM_R_REQUEST_FAILED);
+		return NULL;
+	}
+
+	if (authusage) {
+		TSS_HPOLICY hPolicy;
+		BYTE *auth;
+
+		if ((auth = calloc(1, 128)) == NULL) {
+			p_tspi_Context_CloseObject(hContext, hKey);
+			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, ERR_R_MALLOC_FAILURE);
+			return NULL;
+		}
+
+		if (!tpm_engine_get_auth(ui, auth, 128,
+					 "TPM Key Password: ")) {
+			p_tspi_Context_CloseObject(hContext, hKey);
+			free(auth);
+			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
+			return NULL;
+		}
+
+		if ((result = p_tspi_GetPolicyObject(hSRK, TSS_POLICY_USAGE,
+						     &hPolicy))) {
+			p_tspi_Context_CloseObject(hContext, hKey);
+			free(auth);
+			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+
+		if ((result = p_tspi_Policy_SetSecret(hPolicy,
+						      TSS_SECRET_MODE_PLAIN,
+						      strlen(auth), auth))) {
+			p_tspi_Context_CloseObject(hContext, hKey);
+			free(auth);
+			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+
+		free(auth);
 	}
 
 	/* create the new objects to return */
@@ -929,6 +1025,8 @@ static int tpm_rsa_priv_enc(int flen,
 	if ((result = p_tspi_Hash_Sign(app_data->hHash, app_data->hKey,
 				       &sig_len, &sig))) {
 		TSSerr(TPM_F_TPM_RSA_PRIV_ENC, TPM_R_REQUEST_FAILED);
+		DBG("result = 0x%x (%s)", result,
+		    Trspi_Error_String(result));
 		return 0;
 	}
 
@@ -994,7 +1092,7 @@ static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
 	}
 
 	/* Load the parent key (SRK) which will wrap the new key */
-	if (!tpm_load_srk()) {
+	if (!tpm_load_srk(NULL)) {
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_SRK_LOAD_FAILED);
 		return 0;
 	}
