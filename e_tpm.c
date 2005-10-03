@@ -673,7 +673,7 @@ retry:
 			return NULL;
 		}
 
-		if ((result = p_tspi_GetPolicyObject(hSRK, TSS_POLICY_USAGE,
+		if ((result = p_tspi_GetPolicyObject(hKey, TSS_POLICY_USAGE,
 						     &hPolicy))) {
 			p_tspi_Context_CloseObject(hContext, hKey);
 			free(auth);
