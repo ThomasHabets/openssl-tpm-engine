@@ -152,7 +152,7 @@ int main(int argc, char **argv)
 	exit(1);
 #endif
 	filename = argv[argc - 1];
-	if (filename[0] == '-')
+	if (argc < 2 || filename[0] == '-')
 		usage(argv[0]);
 
 		//Create Context
