@@ -2,12 +2,12 @@
 # configure.in for the OpenSSL TPM engine project
 #
 
-AC_INIT(openssl-tpm-engine, 0.2.3, trousers-users@lists.sf.net)
+AC_INIT(openssl-tpm-engine, 0.1, trousers-users@lists.sf.net)
 AM_INIT_AUTOMAKE(1.6.3)
 
 # Debugging support
 AC_ARG_ENABLE(debug,
-		AC_HELP_STRING([--enable-debug], [turn on all trousers debugging flags [default is off]]),
+		AC_HELP_STRING([--enable-debug], [turn on all debugging flags [default is off]]),
 		[enable_debug="yes"
 		 AC_MSG_RESULT([*** Enabling debugging at user request ***])],)
 
@@ -23,7 +23,7 @@ fi
 
 OPENSSL_LIB_DIR="/usr/local/ssl/lib"
 
-# Non-standard OpenSSL (for 64bit platforms)
+# Non-standard OpenSSL
 AC_MSG_CHECKING([Non-standard OpenSSL])
 AC_ARG_WITH(openssl,
 	[--with-openssl=PATH      Location of openssl libs/includes],
