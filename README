@@ -13,6 +13,8 @@ interfaces with the TSS API.
 
 BUILDING
 
+ Requirements: OpenSSL 0.9.8
+
  By default, the build will assume that you have a custom openssl installed
 in /usr/local/ssl.
 
@@ -58,7 +60,7 @@ into a TPM). Here are the trade-offs:
   SHA1 signature scheme - assumes *all* data to be signed is a SHA1 hash.
     This restricts the data size to be signed to 20 bytes, always.
 
-* default
+  * default
 
   Key sizes: Default=2048 bits. Other valid sizes are 512 and 1024 bits.
 
@@ -79,7 +81,6 @@ OpenSSL TPM engine
   Included in this package is a sample openssl.cnf file, which can be used
 to turn on use of the TPM engine in apps where OpenSSL config support is
 compiled in.
-
 
 
 USE CASES
