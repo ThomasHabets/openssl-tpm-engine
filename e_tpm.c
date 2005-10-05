@@ -276,6 +276,7 @@ int tpm_load_srk(UI_METHOD *ui)
 {
 	TSS_RESULT result;
 	TSS_HPOLICY hPolicy;
+	UINT32 authusage;
 	BYTE *auth;
 
 	if (hSRK != NULL_HKEY)
@@ -294,27 +295,38 @@ int tpm_load_srk(UI_METHOD *ui)
 		return 0;
 	}
 
-	if ((auth = calloc(1, 128)) == NULL) {
-		TSSerr(TPM_F_TPM_LOAD_SRK, ERR_R_MALLOC_FAILURE);
-		return 0;
-	}
-
-	if (!tpm_engine_get_auth(ui, auth, 128, "SRK authorization: ")) {
+	if ((result = p_tspi_GetAttribUint32(hSRK, TSS_TSPATTRIB_KEY_INFO,
+					     TSS_TSPATTRIB_KEYINFO_AUTHUSAGE,
+					     &authusage))) {
 		p_tspi_Context_CloseObject(hContext, hSRK);
-		free(auth);
-		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
-	}
-
-	if ((result = p_tspi_Policy_SetSecret(hPolicy, TSS_SECRET_MODE_PLAIN,
-					      strlen(auth), auth))) {
-		p_tspi_Context_CloseObject(hContext, hSRK);
-		p_tspi_Context_CloseObject(hContext, hPolicy);
-		free(auth);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
-	free(auth);
+	if (authusage) {
+		if ((auth = calloc(1, 128)) == NULL) {
+			TSSerr(TPM_F_TPM_LOAD_SRK, ERR_R_MALLOC_FAILURE);
+			return 0;
+		}
+
+		if (!tpm_engine_get_auth(ui, auth, 128, "SRK authorization: ")) {
+			p_tspi_Context_CloseObject(hContext, hSRK);
+			free(auth);
+			TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
+		}
+
+		if ((result = p_tspi_Policy_SetSecret(hPolicy,
+						      TSS_SECRET_MODE_PLAIN,
+						      strlen(auth), auth))) {
+			p_tspi_Context_CloseObject(hContext, hSRK);
+			p_tspi_Context_CloseObject(hContext, hPolicy);
+			free(auth);
+			TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+
+		free(auth);
+	}
 
 	return 1;
 }
