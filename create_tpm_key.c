@@ -50,7 +50,7 @@ usage(char *argv0)
 		"\t\t-e|--enc-scheme\tencryption scheme to use [PKCSV15] or OAEP\n"
 		"\t\t-q|--sig-scheme\tsignature scheme to use [DER] or SHA1\n"
 		"\t\t-s|--key-size\tkey size in bits [2048]\n"
-		"\t\t-a|--auth\trequire a password for the key\n"
+		"\t\t-a|--auth\trequire a password for the key [NO]\n"
 		"\t\t-p|--popup\tuse TSS GUI popup dialogs to get the password "
 		"for the\n\t\t\t\tkey [NO] (implies --auth)\n"
 		"\t\t-h|--help\tprint this help message\n"
