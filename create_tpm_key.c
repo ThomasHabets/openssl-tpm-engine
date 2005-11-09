@@ -26,10 +26,11 @@
 #include <openssl/evp.h>
 
 #include <trousers/tss.h>
-
+#include <trousers/trousers.h>
 
 #define print_error(a,b) \
-	fprintf(stderr, "%s:%d %s result: 0x%x", __FILE__, __LINE__, a, b)
+	fprintf(stderr, "%s:%d %s result: 0x%x (%s)\n", __FILE__, __LINE__, \
+		a, b, Trspi_Error_String(b))
 
 static struct option long_options[] = {
 	{"enc-scheme", 1, 0, 'e'},
@@ -70,7 +71,7 @@ int main(int argc, char **argv)
 	TSS_RESULT	result;
 	TSS_HPOLICY	srkUsagePolicy, keyUsagePolicy;
 	BYTE		*blob;
-	UINT32		blob_size;
+	UINT32		blob_size, srk_authusage;
 	FILE		*out;
 	char		*filename, c;
 	int		option_index, auth = 0, popup = 0;
@@ -203,21 +204,52 @@ int main(int argc, char **argv)
 		exit(result);
 	}
 
-		//Get Policy Object
-	if ((result = Tspi_GetPolicyObject(hSRK, TSS_POLICY_USAGE,
-					   &srkUsagePolicy))) {
-		print_error("Tspi_GetPolicyObject", result);
+	if ((result = Tspi_GetAttribUint32(hSRK, TSS_TSPATTRIB_KEY_INFO,
+					   TSS_TSPATTRIB_KEYINFO_AUTHUSAGE,
+					   &srk_authusage))) {
+		print_error("Tspi_GetAttribUint32", result);
 		Tspi_Context_CloseObject(hContext, hKey);
 		Tspi_Context_Close(hContext);
 		exit(result);
 	}
+
+	if (srk_authusage) {
+		BYTE *authdata = calloc(1, 128);
+
+		if (!authdata) {
+			fprintf(stderr, "malloc failed.\n");
+			Tspi_Context_Close(hContext);
+			exit(result);
+		}
+
+		if ((result = Tspi_GetPolicyObject(hSRK, TSS_POLICY_USAGE,
+						   &srkUsagePolicy))) {
+			print_error("Tspi_GetPolicyObject", result);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			free(authdata);
+			exit(result);
+		}
+
+		if (EVP_read_pw_string(authdata, 128, "SRK Password: ", 0)) {
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			free(authdata);
+			exit(result);
+		}
+
 		//Set Secret
-	if ((result = Tspi_Policy_SetSecret(srkUsagePolicy,
-					    TSS_SECRET_MODE_PLAIN, 0, NULL))) {
-		print_error("Tspi_Policy_SetSecret", result);
-		Tspi_Context_CloseObject(hContext, hKey);
-		Tspi_Context_Close(hContext);
-		exit(result);
+		if ((result = Tspi_Policy_SetSecret(srkUsagePolicy,
+						    TSS_SECRET_MODE_PLAIN,
+						    strlen(authdata),
+						    authdata))) {
+			print_error("Tspi_Policy_SetSecret", result);
+			free(authdata);
+			Tspi_Context_Close(hContext);
+			exit(result);
+		}
+
+		free(authdata);
 	}
 
 	if (auth) {
