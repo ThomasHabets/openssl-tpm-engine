@@ -609,11 +609,13 @@ retry:
 	if ((rc = BIO_read(bf, &blob_buf[0], 4096)) < 0) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
 		       TPM_R_FILE_READ_FAILED);
+		BIO_free(bf);
 		return NULL;
 	} else if (rc == 0 && BIO_should_retry(bf)) {
 		goto retry;
 	}
 
+	BIO_free(bf);
 	DBG("Loading blob of size: %d", rc);
 	if ((result = p_tspi_Context_LoadKeyByBlob(hContext, hSRK, rc,
 					blob_buf, &hKey))) {
@@ -744,7 +746,11 @@ static int tpm_rsa_init(RSA *rsa)
 
 static int tpm_rsa_finish(RSA *rsa)
 {
+	struct rsa_app_data *app_data = RSA_get_ex_data(rsa, ex_app_data);
+
 	DBG("%s", __FUNCTION__);
+
+	OPENSSL_free(app_data);
 
 	return 1;
 }
