@@ -120,8 +120,8 @@ static RSA_METHOD tpm_rsa = {
 	tpm_rsa_pub_dec,
 	tpm_rsa_priv_enc,
 	tpm_rsa_priv_dec,
-	NULL,
-	NULL,
+	NULL, /* set in tpm_engine_init */
+	BN_mod_exp_mont,
 	tpm_rsa_init,
 	tpm_rsa_finish,
 	(RSA_FLAG_SIGN_VER | RSA_FLAG_NO_BLINDING),
@@ -413,6 +413,8 @@ static int tpm_engine_init(ENGINE * e)
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_UNIT_FAILURE);
 		goto err;
 	}
+
+	tpm_rsa.rsa_mod_exp = RSA_PKCS1_SSLeay()->rsa_mod_exp;
 
 	return 1;
 err:
