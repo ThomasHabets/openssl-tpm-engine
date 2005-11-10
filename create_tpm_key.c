@@ -308,7 +308,7 @@ int main(int argc, char **argv)
 		print_error("Tspi_Key_CreateKey", result);
 		Tspi_Context_CloseObject(hContext, hKey);
 		Tspi_Context_Close(hContext);
-		exit(1);
+		exit(result);
 	}
 
 	if ((result = Tspi_GetAttribData(hKey, TSS_TSPATTRIB_KEY_BLOB,
@@ -317,14 +317,14 @@ int main(int argc, char **argv)
 		print_error("Tspi_GetAttribData", result);
 		Tspi_Context_CloseObject(hContext, hKey);
 		Tspi_Context_Close(hContext);
-		exit(1);
+		exit(result);
 	}
 
 	if ((out = fopen(filename, "w")) == NULL) {
 		print_error("fopen", errno);
 		Tspi_Context_CloseObject(hContext, hKey);
 		Tspi_Context_Close(hContext);
-		exit(1);
+		exit(result);
 	}
 
 	if (fwrite(blob, blob_size, 1, out) != 1) {
@@ -332,7 +332,7 @@ int main(int argc, char **argv)
 		Tspi_Context_CloseObject(hContext, hKey);
 		Tspi_Context_Close(hContext);
 		fclose(out);
-		exit(1);
+		exit(result);
 	}
 
 	fclose(out);
