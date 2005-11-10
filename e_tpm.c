@@ -768,12 +768,10 @@ static int tpm_rsa_pub_dec(int flen,
 	DBG("%s", __FUNCTION__);
 
 	if ((rv =
-	    RSA_PKCS1_SSLeay()->rsa_pub_dec(flen, from, to, rsa, padding)) != 1) {
+	    RSA_PKCS1_SSLeay()->rsa_pub_dec(flen, from, to, rsa, padding)) < 0) {
 		TSSerr(TPM_F_TPM_RSA_PUB_DEC, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
-
-	DBG("%s: called eay function internally", __FUNCTION__);
 
 	return rv;
 }
