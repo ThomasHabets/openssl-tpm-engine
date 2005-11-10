@@ -67,7 +67,7 @@ into a TPM). Here are the trade-offs:
   Key auth: Default=none. if -a is specified, you will be prompted on the
 command line using OpenSSL for a passphrase. This passphrase is SHA1 hashed
 by the TSS and used as the key's password. At key load time, you'll be
-prompted for the passphrase again by OpenSSL. If -p is psecified, you'll get
+prompted for the passphrase again by OpenSSL. If -p is specified, you'll get
 a GUI  prompt for password. WARNING: The TSS spec requires passwords input
 into a popup be converted to UTF16, then hashed using SHA1. This means that
 unless you manually convert your passphrase to UTF16 before passing it to
