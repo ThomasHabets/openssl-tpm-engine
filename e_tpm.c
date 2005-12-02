@@ -767,8 +767,8 @@ static int tpm_rsa_pub_dec(int flen,
 
 	DBG("%s", __FUNCTION__);
 
-	if ((rv =
-	    RSA_PKCS1_SSLeay()->rsa_pub_dec(flen, from, to, rsa, padding)) < 0) {
+	if ((rv = RSA_PKCS1_SSLeay()->rsa_pub_dec(flen, from, to, rsa,
+						  padding)) < 0) {
 		TSSerr(TPM_F_TPM_RSA_PUB_DEC, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
@@ -786,12 +786,19 @@ static int tpm_rsa_priv_dec(int flen,
 	TSS_RESULT result;
 	UINT32 out_len, in_len;
 	BYTE *out;
+	int rv;
 
 	DBG("%s", __FUNCTION__);
 
 	if (!app_data) {
-		TSSerr(TPM_F_TPM_RSA_PRIV_DEC, TPM_R_NO_APP_DATA);
-		return 0;
+		DBG("No app data found for RSA object %p. Calling software.",
+		    rsa);
+		if ((rv = RSA_PKCS1_SSLeay()->rsa_priv_dec(flen, from, to, rsa,
+						padding)) < 0) {
+			TSSerr(TPM_F_TPM_RSA_PRIV_DEC, TPM_R_REQUEST_FAILED);
+		}
+
+		return rv;
 	}
 
 	if (app_data->hKey == NULL_HKEY) {
@@ -856,12 +863,19 @@ static int tpm_rsa_pub_enc(int flen,
 	TSS_RESULT result;
 	UINT32 out_len, in_len;
 	BYTE *out;
+	int rv;
 
 	DBG("%s", __FUNCTION__);
 
 	if (!app_data) {
-		TSSerr(TPM_F_TPM_RSA_PUB_ENC, TPM_R_NO_APP_DATA);
-		return 0;
+		DBG("No app data found for RSA object %p. Calling software.",
+		    rsa);
+		if ((rv = RSA_PKCS1_SSLeay()->rsa_pub_enc(flen, from, to, rsa,
+						padding)) < 0) {
+			TSSerr(TPM_F_TPM_RSA_PUB_ENC, TPM_R_REQUEST_FAILED);
+		}
+
+		return rv;
 	}
 
 	if (app_data->hKey == NULL_HKEY) {
@@ -956,12 +970,19 @@ static int tpm_rsa_priv_enc(int flen,
 	TSS_RESULT result;
 	UINT32 sig_len;
 	BYTE *sig;
+	int rv;
 
 	DBG("%s", __FUNCTION__);
 
 	if (!app_data) {
-		TSSerr(TPM_F_TPM_RSA_PRIV_ENC, TPM_R_NO_APP_DATA);
-		return 0;
+		DBG("No app data found for RSA object %p. Calling software.",
+		    rsa);
+		if ((rv = RSA_PKCS1_SSLeay()->rsa_priv_enc(flen, from, to, rsa,
+						padding)) < 0) {
+			TSSerr(TPM_F_TPM_RSA_PRIV_ENC, TPM_R_REQUEST_FAILED);
+		}
+
+		return rv;
 	}
 
 	if (padding != RSA_PKCS1_PADDING) {
