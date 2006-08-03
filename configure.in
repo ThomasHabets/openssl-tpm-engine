@@ -21,7 +21,12 @@ if test "$test_CFLAGS" != set; then
 	fi
 fi
 
-OPENSSL_LIB_DIR="/usr/local/ssl/lib"
+if test "${OPENSSL_LIB_DIR+set}" != set; then
+	OPENSSL_LIB_DIR="/usr/local/ssl/lib"
+fi
+if test "${OPENSSL_INCLUDE_DIR+set}" != set; then
+	OPENSSL_INCLUDE_DIR="/usr/local/ssl/include"
+fi
 
 # Non-standard OpenSSL
 AC_MSG_CHECKING([Non-standard OpenSSL])
@@ -36,8 +41,8 @@ AC_ARG_WITH(openssl,
 		CFLAGS="$CFLAGS -L$OPENSSL_LIB_DIR -I$OPENSSL_INCLUDE_DIR"
 	 fi],
 	[AC_MSG_RESULT([no])
-	 AC_SUBST([OPENSSL_LIB_DIR], [/usr/local/ssl/lib])
-	 AC_SUBST([OPENSSL_INCLUDE_DIR], [/usr/local/ssl/include]) ] )
+	 AC_SUBST(OPENSSL_LIB_DIR)
+	 AC_SUBST(OPENSSL_INCLUDE_DIR)])
 
 # for the correct install target
 libdir="$OPENSSL_LIB_DIR/engines"
