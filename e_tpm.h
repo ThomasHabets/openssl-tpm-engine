@@ -33,6 +33,7 @@
 #define NULL_HTPM	0
 #define NULL_HHASH	0
 #define NULL_HENCDATA	0
+#define NULL_HPOLICY	0
 
 void ERR_load_TPM_strings(void);
 void ERR_unload_TPM_strings(void);
@@ -43,11 +44,12 @@ void ERR_TSS_error(int function, int reason, char *file, int line);
 		ERR_TSS_error((f),(r),__FILE__,__LINE__); \
 		ERR_print_errors_fp(stderr); \
 	} while (0)
-#define DBG(x, ...)	fprintf(stderr, "DEBUG %s:%d " x "\n", __FILE__,__LINE__, __VA_ARGS__)
-#define DBG(x, ...)	fprintf(stderr, "DEBUG %s:%d " x "\n", __FILE__,__LINE__, __VA_ARGS__)
+#define DBG(x, ...)	fprintf(stderr, "DEBUG %s:%d " x "\n", __FILE__,__LINE__, ##__VA_ARGS__)
+#define DBGFN(x, ...)	fprintf(stderr, "DEBUG %s:%d %s " x "\n", __FILE__,__LINE__,__FUNCTION__,##__VA_ARGS__)
 #else
 #define TSSerr(f,r)	ERR_TSS_error((f),(r),__FILE__,__LINE__)
 #define DBG(x, ...)
+#define DBGFN(x, ...)
 #endif
 
 /* Error codes for the TPM functions. */
@@ -71,6 +73,7 @@ void ERR_TSS_error(int function, int reason, char *file, int line);
 #define TPM_F_TPM_BIND_FN			115
 #define TPM_F_TPM_FILL_RSA_OBJECT		116
 #define TPM_F_TPM_ENGINE_GET_AUTH		117
+#define TPM_F_TPM_CREATE_SRK_POLICY		118
 
 /* Reason codes. */
 #define TPM_R_ALREADY_LOADED			100
@@ -100,6 +103,7 @@ void ERR_TSS_error(int function, int reason, char *file, int line);
 #define TPM_R_FILE_READ_FAILED			124
 #define TPM_R_ID_INVALID			125
 #define TPM_R_UI_METHOD_FAILED			126
+#define TPM_R_UNKNOWN_SECRET_MODE		127
 
 /* structure pointed to by the RSA object's app_data pointer */
 struct rsa_app_data

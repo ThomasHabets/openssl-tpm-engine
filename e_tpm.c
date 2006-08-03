@@ -75,6 +75,7 @@ static const char *TPM_F_GetPolicyObject = "Tspi_GetPolicyObject";
 static const char *TPM_F_Hash_Sign = "Tspi_Hash_Sign";
 static const char *TPM_F_Hash_SetHashValue = "Tspi_Hash_SetHashValue";
 static const char *TPM_F_Policy_SetSecret = "Tspi_Policy_SetSecret";
+static const char *TPM_F_Policy_AssignToObject = "Tspi_Policy_AssignToObject";
 
 /* engine specific functions */
 static int tpm_engine_destroy(ENGINE *);
@@ -101,15 +102,23 @@ static int tpm_rand_bytes(unsigned char *, int);
 static int tpm_rand_status(void);
 static void tpm_rand_seed(const void *, int);
 
-static TSS_UUID SRK_UUID = TSS_UUID_SRK;
-
 /* The definitions for control commands specific to this engine */
 #define TPM_CMD_SO_PATH		ENGINE_CMD_BASE
+#define TPM_CMD_PIN		ENGINE_CMD_BASE+1
+#define TPM_CMD_SECRET_MODE	ENGINE_CMD_BASE+2
 static const ENGINE_CMD_DEFN tpm_cmd_defns[] = {
 	{TPM_CMD_SO_PATH,
 	 "SO_PATH",
 	 "Specifies the path to the libtspi.so shared library",
 	 ENGINE_CMD_FLAG_STRING},
+	{TPM_CMD_PIN,
+	 "PIN",
+	 "Specifies the secret for the SRK (default is plaintext, else set SECRET_MODE)",
+	 ENGINE_CMD_FLAG_STRING},
+	{TPM_CMD_SECRET_MODE,
+	 "SECRET_MODE",
+	 "The TSS secret mode for all secrets",
+	 ENGINE_CMD_FLAG_NUMERIC},
 	{0, NULL, NULL, 0}
 };
 
@@ -147,9 +156,12 @@ static const char *engine_tpm_id = "tpm";
 static const char *engine_tpm_name = "TPM hardware engine support";
 static const char *TPM_LIBNAME = "tspi";
 
-static TSS_HCONTEXT hContext = NULL_HCONTEXT;
-static TSS_HKEY     hSRK     = NULL_HKEY;
-static TSS_HTPM     hTPM     = NULL_HTPM;
+static TSS_HCONTEXT hContext    = NULL_HCONTEXT;
+static TSS_HKEY     hSRK        = NULL_HKEY;
+static TSS_HPOLICY  hSRKPolicy  = NULL_HPOLICY;
+static TSS_HTPM     hTPM        = NULL_HTPM;
+static TSS_UUID     SRK_UUID    = TSS_UUID_SRK;
+static UINT32       secret_mode = TSS_SECRET_MODE_PLAIN;
 
 /* varibles used to get/set CRYPTO_EX_DATA values */
 int  ex_app_data = TPM_ENGINE_EX_DATA_UNINIT;
@@ -187,6 +199,7 @@ static unsigned int (*p_tspi_Hash_Sign)();
 static unsigned int (*p_tspi_Hash_SetHashValue)();
 static unsigned int (*p_tspi_GetPolicyObject)();
 static unsigned int (*p_tspi_Policy_SetSecret)();
+static unsigned int (*p_tspi_Policy_AssignToObject)();
 
 /* This internal function is used by ENGINE_tpm() and possibly by the
  * "dynamic" ENGINE support too */
@@ -239,22 +252,16 @@ void ENGINE_load_tpm(void)
 int tpm_load_srk(UI_METHOD *ui)
 {
 	TSS_RESULT result;
-	TSS_HPOLICY hPolicy;
 	UINT32 authusage;
 	BYTE *auth;
 
-	if (hSRK != NULL_HKEY)
+	if (hSRK != NULL_HKEY) {
+		DBGFN("SRK is already loaded.");
 		return 1;
+	}
 
 	if ((result = p_tspi_Context_LoadKeyByUUID(hContext, TSS_PS_TYPE_SYSTEM,
 						   SRK_UUID, &hSRK))) {
-		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
-		return 0;
-	}
-
-	if ((result = p_tspi_GetPolicyObject(hSRK, TSS_POLICY_USAGE,
-					     &hPolicy))) {
-		p_tspi_Context_CloseObject(hContext, hSRK);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
@@ -267,30 +274,54 @@ int tpm_load_srk(UI_METHOD *ui)
 		return 0;
 	}
 
-	if (authusage) {
-		if ((auth = calloc(1, 128)) == NULL) {
-			TSSerr(TPM_F_TPM_LOAD_SRK, ERR_R_MALLOC_FAILURE);
-			return 0;
-		}
-
-		if (!tpm_engine_get_auth(ui, auth, 128, "SRK authorization: ")) {
-			p_tspi_Context_CloseObject(hContext, hSRK);
-			free(auth);
-			TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
-		}
-
-		if ((result = p_tspi_Policy_SetSecret(hPolicy,
-						      TSS_SECRET_MODE_PLAIN,
-						      strlen(auth), auth))) {
-			p_tspi_Context_CloseObject(hContext, hSRK);
-			p_tspi_Context_CloseObject(hContext, hPolicy);
-			free(auth);
-			TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
-			return 0;
-		}
-
-		free(auth);
+	if (!authusage) {
+		DBG("SRK has no auth associated with it.");
+		return 1;
 	}
+
+	/* If hSRKPolicy is non 0, then a policy object for the SRK has already
+	 * been set up by engine pre/post commands. Just assign it to the SRK.
+	 * Otherwise, we need to get the SRK's implicit policy and prompt for a
+	 * secret */
+	if (hSRKPolicy) {
+		DBG("Found an already initialized SRK policy, using it");
+		if ((result = p_tspi_Policy_AssignToObject(hSRKPolicy, hSRK))) {
+			TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+
+		return 1;
+	}
+
+	if ((result = p_tspi_GetPolicyObject(hSRK, TSS_POLICY_USAGE,
+					&hSRKPolicy))) {
+		p_tspi_Context_CloseObject(hContext, hSRK);
+		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
+		return 0;
+	}
+
+	if ((auth = calloc(1, 128)) == NULL) {
+		TSSerr(TPM_F_TPM_LOAD_SRK, ERR_R_MALLOC_FAILURE);
+		return 0;
+	}
+
+	if (!tpm_engine_get_auth(ui, auth, 128, "SRK authorization: ")) {
+		p_tspi_Context_CloseObject(hContext, hSRK);
+		free(auth);
+		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
+	}
+
+	/* secret_mode is a global that may be set by engine ctrl
+	 * commands.  By default, its set to TSS_SECRET_MODE_PLAIN */
+	if ((result = p_tspi_Policy_SetSecret(hSRKPolicy, secret_mode,
+					      strlen(auth), auth))) {
+		p_tspi_Context_CloseObject(hContext, hSRK);
+		free(auth);
+		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
+		return 0;
+	}
+
+	free(auth);
 
 	return 1;
 }
@@ -331,6 +362,7 @@ static int tpm_engine_init(ENGINE * e)
 	void (*p21) ();
 	void (*p22) ();
 	void (*p23) ();
+	void (*p24) ();
 	TSS_RESULT result;
 
 	DBG("%s", __FUNCTION__);
@@ -367,7 +399,8 @@ static int tpm_engine_init(ENGINE * e)
 	    !(p20 = DSO_bind_func(tpm_dso, TPM_F_Context_LoadKeyByBlob)) ||
 	    !(p21 = DSO_bind_func(tpm_dso, TPM_F_Context_GetTpmObject)) ||
 	    !(p22 = DSO_bind_func(tpm_dso, TPM_F_GetAttribUint32)) ||
-	    !(p23 = DSO_bind_func(tpm_dso, TPM_F_SetAttribData))
+	    !(p23 = DSO_bind_func(tpm_dso, TPM_F_SetAttribData)) ||
+	    !(p24 = DSO_bind_func(tpm_dso, TPM_F_Policy_AssignToObject))
 	    ) {
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_DSO_FAILURE);
 		goto err;
@@ -397,6 +430,7 @@ static int tpm_engine_init(ENGINE * e)
 	p_tspi_Context_GetTpmObject = (unsigned int (*) ()) p21;
 	p_tspi_GetAttribUint32 = (unsigned int (*) ()) p22;
 	p_tspi_SetAttribData = (unsigned int (*) ()) p23;
+	p_tspi_Policy_AssignToObject = (unsigned int (*) ()) p24;
 
 	if ((result = p_tspi_Context_Create(&hContext))) {
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_UNIT_FAILURE);
@@ -449,6 +483,7 @@ err:
 	p_tspi_SetAttribUint32 = NULL;
 	p_tspi_GetPolicyObject = NULL;
 	p_tspi_Policy_SetSecret = NULL;
+	p_tspi_Policy_AssignToObject = NULL;
 	p_tspi_TPM_StirRandom = NULL;
 	p_tspi_TPM_GetRandom = NULL;
 
@@ -703,6 +738,39 @@ retry:
 	return pkey;
 }
 
+static int tpm_create_srk_policy(void *secret)
+{
+	TSS_RESULT result;
+	UINT32 secret_len;
+
+	if (secret_mode == TSS_SECRET_MODE_SHA1)
+		secret_len = SHA_DIGEST_LENGTH;
+	else {
+		secret_len = (secret == NULL) ? 0 : strlen((BYTE *)secret);
+		DBG("Using SRK secret = %s", (BYTE *)secret);
+	}
+
+	if (hSRKPolicy == NULL_HPOLICY) {
+		DBG("Creating SRK policy");
+		if ((result = p_tspi_Context_CreateObject(hContext,
+							  TSS_OBJECT_TYPE_POLICY,
+							  TSS_POLICY_USAGE,
+							  &hSRKPolicy))) {
+			TSSerr(TPM_F_TPM_CREATE_SRK_POLICY,
+			       TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+	}
+
+	if ((result = p_tspi_Policy_SetSecret(hSRKPolicy, secret_mode,
+					      secret_len, (BYTE *)secret))) {
+		TSSerr(TPM_F_TPM_CREATE_SRK_POLICY, TPM_R_REQUEST_FAILED);
+		return 0;
+	}
+
+	return 1;
+}
+
 static int tpm_engine_ctrl(ENGINE * e, int cmd, long i, void *p, void (*f) ())
 {
 	int initialised = ((tpm_dso == NULL) ? 0 : 1);
@@ -722,6 +790,25 @@ static int tpm_engine_ctrl(ENGINE * e, int cmd, long i, void *p, void (*f) ())
 			}
 			TPM_LIBNAME = (const char *) p;
 			return 1;
+		case TPM_CMD_SECRET_MODE:
+			switch ((UINT32)i) {
+				case TSS_SECRET_MODE_POPUP:
+					secret_mode = (UINT32)i;
+					return tpm_create_srk_policy(p);
+				case TSS_SECRET_MODE_SHA1:
+					/* fall through */
+				case TSS_SECRET_MODE_PLAIN:
+					secret_mode = (UINT32)i;
+					break;
+				default:
+					TSSerr(TPM_F_TPM_ENGINE_CTRL,
+					       TPM_R_UNKNOWN_SECRET_MODE);
+					return 0;
+					break;
+			}
+			return 1;
+		case TPM_CMD_PIN:
+			return tpm_create_srk_policy(p);
 		default:
 			break;
 	}
@@ -1136,6 +1223,13 @@ static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
 	if (!fill_out_rsa_object(rsa, hKey)) {
 		p_tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
+		return 0;
+	}
+
+	/* Load the key into the chip so other functions don't need to */
+	if ((result = p_tspi_Key_LoadKey(hKey, hSRK))) {
+		p_tspi_Context_CloseObject(hContext, hKey);
+		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
