@@ -2,7 +2,7 @@
 # configure.in for the OpenSSL TPM engine project
 #
 
-AC_INIT(openssl-tpm-engine, 0.3, trousers-users@lists.sf.net)
+AC_INIT(openssl-tpm-engine, 0.4, trousers-users@lists.sf.net)
 AM_INIT_AUTOMAKE(1.6.3)
 
 # Debugging support
@@ -49,7 +49,7 @@ AC_PROG_LIBTOOL
 CFLAGS="$CFLAGS -Wall"
 AC_SUBST(CFLAGS)
 
-AC_OUTPUT(Makefile)
+AC_OUTPUT(Makefile test/Makefile)
 
 echo "CFLAGS=$CFLAGS"
 
