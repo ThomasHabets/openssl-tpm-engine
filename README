@@ -7,7 +7,7 @@
 
 ABOUT
 
-  This package comtains 2 sets of code, a command-line utility used to
+  This package contains 2 sets of code, a command-line utility used to
 generate a TSS key blob and write it to disk and an OpenSSL engine which
 interfaces with the TSS API.
 
@@ -68,13 +68,25 @@ into a TPM). Here are the trade-offs:
 command line using OpenSSL for a passphrase. This passphrase is SHA1 hashed
 by the TSS and used as the key's password. At key load time, you'll be
 prompted for the passphrase again by OpenSSL. If -p is specified, you'll get
-a GUI  prompt for password. WARNING: The TSS spec requires passwords input
-into a popup be converted to UTF16, then hashed using SHA1. This means that
-unless you manually convert your passphrase to UTF16 before passing it to
-the TSS, there'll be no way to input your passphrase correctly unless you use
-the GUI popup with the TSS. This is still being worked on in the OpenSSL
-engine code. Perhaps I can make the secret input popups an option in the
-engine's control commands. [TODO]
+a GUI  prompt for password.
+  In order to make the TPM engine prompt you for your password, add the
+following code to your app:
+
+  To set the SRK password explicitly in your code, do:
+
+  ENGINE_ctrl_cmd(e, "PIN", 0, SRK_password, NULL, 0);
+
+  The default secret mode is TSS_SECRET_MODE_PLAIN, so the above code will
+always work with a plaintext SRK secret.  If you have the hash of your secret,
+do this:
+
+  ENGINE_ctrl_cmd(e, "SECRET_MODE", TSS_SECRET_MODE_SHA1, NULL, NULL, 0);
+  ENGINE_ctrl_cmd(e, "PIN", 0, SRK_password_hash, NULL, 0);
+
+  To force the TSS to popup a dialog prompting you for your SRK password:
+
+  ENGINE_ctrl_cmd(e, "SECRET_MODE", TSS_SECRET_MODE_POPUP, NULL, NULL, 0);
+
 
 OpenSSL TPM engine
 
