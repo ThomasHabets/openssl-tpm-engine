@@ -564,8 +564,8 @@ int fill_out_rsa_object(RSA *rsa, TSS_HKEY hKey)
 	}
 
 	/* pull out the public key and put it into the RSA object */
-	if ((result = p_tspi_GetAttribData(hKey, TSS_TSPATTRIB_KEY_BLOB,
-					   TSS_TSPATTRIB_KEYBLOB_PUBLIC_KEY,
+	if ((result = p_tspi_GetAttribData(hKey, TSS_TSPATTRIB_RSAKEY_INFO,
+					   TSS_TSPATTRIB_KEYINFO_RSA_MODULUS,
 					   &pubkey_len, &pubkey))) {
 		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_REQUEST_FAILED);
 		return 0;
