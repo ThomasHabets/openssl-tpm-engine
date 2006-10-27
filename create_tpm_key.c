@@ -1,6 +1,6 @@
 /*
  *
- *   Copyright (C) International Business Machines  Corp., 2005
+ *   Copyright (C) International Business Machines  Corp., 2005-2006
  *
  *   This program is free software;  you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -23,7 +23,10 @@
 #include <strings.h>
 #include <errno.h>
 
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
 #include <openssl/evp.h>
+#include <openssl/err.h>
 
 #include <trousers/tss.h>
 #include <trousers/trousers.h>
@@ -38,6 +41,7 @@ static struct option long_options[] = {
 	{"key-size", 1, 0, 's'},
 	{"auth", 0, 0, 'a'},
 	{"popup", 0, 0, 'p'},
+	{"wrap", 1, 0, 'w'},
 	{"help", 0, 0, 'h'},
 	{0, 0, 0, 0}
 };
@@ -48,19 +52,69 @@ usage(char *argv0)
 	fprintf(stderr, "\t%s: create a TPM key and write it to disk\n"
 		"\tusage: %s [options] <filename>\n\n"
 		"\tOptions:\n"
-		"\t\t-e|--enc-scheme\tencryption scheme to use [PKCSV15] or OAEP\n"
-		"\t\t-q|--sig-scheme\tsignature scheme to use [DER] or SHA1\n"
-		"\t\t-s|--key-size\tkey size in bits [2048]\n"
-		"\t\t-a|--auth\trequire a password for the key [NO]\n"
-		"\t\t-p|--popup\tuse TSS GUI popup dialogs to get the password "
-		"for the\n\t\t\t\tkey [NO] (implies --auth)\n"
-		"\t\t-h|--help\tprint this help message\n"
+		"\t\t-e|--enc-scheme  encryption scheme to use [PKCSV15] or OAEP\n"
+		"\t\t-q|--sig-scheme  signature scheme to use [DER] or SHA1\n"
+		"\t\t-s|--key-size    key size in bits [2048]\n"
+		"\t\t-a|--auth        require a password for the key [NO]\n"
+		"\t\t-p|--popup       use TSS GUI popup dialogs to get the password "
+		"for the\n\t\t\t\t key [NO] (implies --auth)\n"
+		"\t\t-w|--wrap [file] wrap an existing openssl PEM key\n"
+		"\t\t-h|--help        print this help message\n"
 		"\nReport bugs to %s\n",
 		argv0, argv0, PACKAGE_BUGREPORT);
 	exit(-1);
 }
 
 TSS_UUID SRK_UUID = TSS_UUID_SRK;
+
+void
+openssl_print_errors()
+{
+	ERR_load_ERR_strings();
+	ERR_load_crypto_strings();
+	ERR_print_errors_fp(stderr);
+}
+
+RSA *
+openssl_read_key(char *filename)
+{
+        BIO *b = NULL;
+        RSA *rsa = NULL;
+
+        b = BIO_new_file(filename, "r");
+        if (b == NULL) {
+                fprintf(stderr, "Error opening file for read: %s\n", filename);
+                return NULL;
+        }
+
+        if ((rsa = PEM_read_bio_RSAPrivateKey(b, NULL, 0, NULL)) == NULL) {
+                fprintf(stderr, "Reading key %s from disk failed.\n", filename);
+                openssl_print_errors();
+        }
+	BIO_free(b);
+
+        return rsa;
+}
+
+int
+openssl_get_modulus_and_prime(RSA *rsa, unsigned int *size_n, unsigned char *n,
+			      unsigned int *size_p, unsigned char *p)
+{
+	/* get the modulus from the RSA object */
+	if ((*size_n = BN_bn2bin(rsa->n, n)) <= 0) {
+		openssl_print_errors();
+		return -1;
+	}
+
+	/* get one of the primes from the RSA object */
+	if ((*size_p = BN_bn2bin(rsa->p, p)) <= 0) {
+		openssl_print_errors();
+		return -1;
+	}
+
+	return 0;
+}
+
 
 int main(int argc, char **argv)
 {
@@ -73,11 +127,12 @@ int main(int argc, char **argv)
 	BYTE		*blob;
 	UINT32		blob_size, srk_authusage;
 	FILE		*out;
-	char		*filename, c;
-	int		option_index, auth = 0, popup = 0;
+	char		*filename, c, *openssl_key = NULL;
+	int		option_index, auth = 0, popup = 0, wrap = 0;
 	UINT32		enc_scheme = TSS_ES_RSAESPKCSV15;
 	UINT32		sig_scheme = TSS_SS_RSASSAPKCS1V15_DER;
 	UINT32		key_size = 2048;
+	RSA		*rsa;
 
 	while (1) {
 		option_index = 0;
@@ -115,6 +170,11 @@ int main(int argc, char **argv)
 				initFlags |= TSS_KEY_AUTHORIZATION;
 				auth = 1;
 				popup = 1;
+				break;
+			case 'w':
+				initFlags |= TSS_KEY_MIGRATABLE;
+				wrap = 1;
+				openssl_key = optarg;
 				break;
 			default:
 				usage(argv[0]);
@@ -303,12 +363,77 @@ int main(int argc, char **argv)
 		}
 	}
 
-		//Create Key
-	if ((result = Tspi_Key_CreateKey(hKey, hSRK, 0))) {
-		print_error("Tspi_Key_CreateKey", result);
-		Tspi_Context_CloseObject(hContext, hKey);
-		Tspi_Context_Close(hContext);
-		exit(result);
+	// Create or Wrap Key
+	if (wrap) {
+		char n[256], p[128];
+		int size_n, size_p;
+		BYTE *pubSRK;
+
+		/* Pull the PubKRK out of the TPM */
+		if ((result = Tspi_Key_GetPubKey(hSRK, &size_n, &pubSRK))) {
+			print_error("Tspi_Key_WrapKey", result);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(result);
+		}
+		Tspi_Context_FreeMemory(hContext, pubSRK);
+
+		if ((rsa = openssl_read_key(openssl_key)) == NULL) {
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(-1);
+		}
+
+		if (RSA_size(rsa) != key_size / 8) {
+			fprintf(stderr,
+				"Error, key size is incorrect, please use the '-s' option\n");
+			RSA_free(rsa);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(-1);
+		}
+
+		if (openssl_get_modulus_and_prime(rsa, &size_n, n, &size_p, p)) {
+			fprintf(stderr, "Error getting modulus and prime!\n");
+			RSA_free(rsa);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(-1);
+		}
+
+		if ((result = Tspi_SetAttribData(hKey, TSS_TSPATTRIB_RSAKEY_INFO,
+						 TSS_TSPATTRIB_KEYINFO_RSA_MODULUS,
+						 size_n, n))) {
+			print_error("Tspi_SetAttribData (RSA modulus)", result);
+			RSA_free(rsa);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(-1);
+		}
+
+		if ((result = Tspi_SetAttribData(hKey, TSS_TSPATTRIB_KEY_BLOB,
+						 TSS_TSPATTRIB_KEYBLOB_PRIVATE_KEY,
+						 size_p, p))) {
+			print_error("Tspi_SetAttribData (private key)", result);
+			RSA_free(rsa);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(-1);
+		}
+
+		if ((result = Tspi_Key_WrapKey(hKey, hSRK, 0))) {
+			print_error("Tspi_Key_WrapKey", result);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(result);
+		}
+	} else {
+		if ((result = Tspi_Key_CreateKey(hKey, hSRK, 0))) {
+			print_error("Tspi_Key_CreateKey", result);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(result);
+		}
 	}
 
 	if ((result = Tspi_GetAttribData(hKey, TSS_TSPATTRIB_KEY_BLOB,
