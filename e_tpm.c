@@ -369,7 +369,7 @@ static int tpm_engine_init(ENGINE * e)
 
 	if (tpm_dso != NULL) {
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_ALREADY_LOADED);
-		goto err;
+		return 1;
 	}
 
 	if ((tpm_dso = DSO_load(NULL, TPM_LIBNAME, NULL, 0)) == NULL) {
@@ -1065,7 +1065,7 @@ static int tpm_rsa_priv_enc(int flen,
 		DBG("No app data found for RSA object %p. Calling software.",
 		    rsa);
 		if ((rv = RSA_PKCS1_SSLeay()->rsa_priv_enc(flen, from, to, rsa,
-						padding)) < 0) {
+							   padding)) < 0) {
 			TSSerr(TPM_F_TPM_RSA_PRIV_ENC, TPM_R_REQUEST_FAILED);
 		}
 
@@ -1241,20 +1241,27 @@ static int tpm_rand_bytes(unsigned char *buf, int num)
 {
 	TSS_RESULT result;
 	BYTE *rand_data;
+	UINT32 total_requested = 0;
 
 	DBG("%s getting %d bytes", __FUNCTION__, num);
 
-	if (num > 4096) {
-		TSSerr(TPM_F_TPM_RAND_BYTES, TPM_R_REQUEST_TOO_BIG);
-		return 0;
+	if (num - total_requested > 4096) {
+		if ((result = p_tspi_TPM_GetRandom(hTPM, 4096, &rand_data))) {
+			TSSerr(TPM_F_TPM_RAND_BYTES, TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+
+		memcpy(&buf[total_requested], rand_data, 4096);
+		p_tspi_Context_FreeMemory(hContext, rand_data);
+		total_requested += 4096;
 	}
 
-	if ((result = p_tspi_TPM_GetRandom(hTPM, num, &rand_data))) {
+	if ((result = p_tspi_TPM_GetRandom(hTPM, num - total_requested, &rand_data))) {
 		TSSerr(TPM_F_TPM_RAND_BYTES, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
-	memcpy(&buf[0], &rand_data[0], num);
+	memcpy(buf + total_requested, rand_data, num - total_requested);
 	p_tspi_Context_FreeMemory(hContext, rand_data);
 
 	return 1;
@@ -1269,9 +1276,22 @@ static int tpm_rand_status(void)
 static void tpm_rand_seed(const void *buf, int num)
 {
 	TSS_RESULT result;
+	UINT32 total_stirred = 0;
+
 	DBG("%s", __FUNCTION__);
 
-	if ((result = p_tspi_TPM_StirRandom(hTPM, (UINT32)num, buf))) {
+	/* There's a hard maximum of 255 bytes allowed to be sent to the TPM on a TPM_StirRandom
+	 * call.  Use all the bytes in  buf, but break them in to 255 or smaller byte chunks */
+	while (num - total_stirred > 255) {
+		if ((result = p_tspi_TPM_StirRandom(hTPM, 255, buf + total_stirred))) {
+			TSSerr(TPM_F_TPM_RAND_SEED, TPM_R_REQUEST_FAILED);
+			return;
+		}
+
+		total_stirred += 255;
+	}
+
+	if ((result = p_tspi_TPM_StirRandom(hTPM, num - total_stirred, buf + total_stirred))) {
 		TSSerr(TPM_F_TPM_RAND_SEED, TPM_R_REQUEST_FAILED);
 	}
 
