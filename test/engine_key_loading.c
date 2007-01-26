@@ -4,6 +4,18 @@
  *
  * Kent Yoder <kyoder@users.sf.net>
  *
+ * Usage:
+ *   ../create_tpm_key key_file
+ *   ./engine_key_loading key_file
+ *
+ * Note that the "post_test_popup", which will test setting the SRK password
+ * by setting its secret policy to type "popup", will fail against a 1.1 TSS
+ * and succeed (if you click 'OK') against a 1.2 TSS.  This is because in a
+ * 1.1 TSS, the default was to include the trailing zero byte(s) in a password
+ * typed into a popup dialog.  In TSS 1.2, the default is to not include any
+ * trailing zero bytes in the password, which means clicking 'OK' gives a NULL
+ * password (zero-length), which matches all other passwords in this test.
+ *
  */
 
 #include <stdio.h>
@@ -57,7 +69,7 @@ int test_num[] = { 1, 1, 2, 2 };
 #define KEY_SIZE_BITS	512
 
 int
-run_test()
+run_test(EVP_PKEY *key)
 {
 	RSA *rsa;
 	char signature[256], data_to_sign[DATA_SIZE], data_recovered[DATA_SIZE];
@@ -68,63 +80,79 @@ run_test()
 		return 1;
 	}
 
-	rsa = RSA_generate_key(KEY_SIZE_BITS, 65537, NULL, NULL);
+	if (key)
+		rsa = key->pkey.rsa;
+	else
+		rsa = RSA_generate_key(KEY_SIZE_BITS, 65537, NULL, NULL);
+
 	if (!rsa)
 		return 1;
 
 	if ((sig_size = RSA_public_encrypt(sizeof(data_to_sign), data_to_sign,
 					   signature, rsa, RSA_PKCS1_PADDING)) == -1) {
 		ERR_print_errors_fp(stderr);
-		RSA_free(rsa);
+		if (!key)
+			RSA_free(rsa);
 		return 1;
 	}
 
 	if ((sig_size = RSA_private_decrypt(sig_size, signature, data_recovered,
 					    rsa, RSA_PKCS1_PADDING)) != DATA_SIZE) {
 		ERR_print_errors_fp(stderr);
-		RSA_free(rsa);
+		if (!key)
+			RSA_free(rsa);
 		return 1;
 	}
 
 	if (memcmp(data_recovered, data_to_sign, DATA_SIZE)) {
 		ERR("recovered data doesn't match!");
-		RSA_free(rsa);
+		if (!key)
+			RSA_free(rsa);
 		return 1;
 	}
 
 	if ((sig_size = RSA_private_encrypt(sizeof(data_to_sign), data_to_sign,
 					    signature, rsa, RSA_PKCS1_PADDING)) == -1) {
 		ERR_print_errors_fp(stderr);
-		RSA_free(rsa);
+		if (!key)
+			RSA_free(rsa);
 		return 1;
 	}
 
 	if ((sig_size = RSA_public_decrypt(sig_size, signature, data_recovered,
 					    rsa, RSA_PKCS1_PADDING)) != DATA_SIZE) {
 		ERR_print_errors_fp(stderr);
-		RSA_free(rsa);
+		if (!key)
+			RSA_free(rsa);
 		return 1;
 	}
 
 	if (memcmp(data_recovered, data_to_sign, DATA_SIZE)) {
 		ERR("recovered data doesn't match!");
-		RSA_free(rsa);
+		if (!key)
+			RSA_free(rsa);
 		return 1;
 	}
 
-	RSA_free(rsa);
+	if (!key)
+		RSA_free(rsa);
 
 	return 0;
 }
 
 int
-main()
+main(int argc, char **argv)
 {
 	struct eng_cmd *post_cmds;
 	int post_num, failure = 0, i;
 	ENGINE *e;
+	EVP_PKEY *key;
         const char *engine_id = "tpm";
 
+	if (!argv[1]) {
+		fprintf(stderr, "usage: %s: <tpm key file>\n", argv[0]);
+		return -1;
+	}
 
         ENGINE_load_builtin_engines();
 
@@ -158,6 +186,27 @@ main()
 	/* structural reference with ENGINE_free */
 	ENGINE_free(e);
 
+	/* Test 1
+	 *
+	 *  Load a TPM key from file using the engine load command.
+	 *
+	 */
+	if ((key = ENGINE_load_private_key(e, argv[1], NULL, NULL)) == NULL) {
+		ERR_print_errors_fp(stderr);
+		ERR("Couldn't load TPM key \"%s\" from file.", argv[1]);
+		return 4;
+	}
+
+	/*
+	 * Test 2
+	 *
+	 * Do a test run on the loaded TPM key.
+	 *
+	 */
+	printf("%s: Testing loaded TPM key \"%s\"\n", argv[0], argv[1]);
+	failure = run_test(key);
+	printf("%s: Done.\n", argv[0]);
+
 	for (i = 0; i < 4 && !failure; i++) {
 		post_cmds = test_cmds[i];
 		post_num = test_num[i];
@@ -169,23 +218,19 @@ main()
 				ERR("Post command %d failed", i);
 				failure = 1;
 				ENGINE_finish(e);
-				return 4;
+				return 5;
 			}
 			post_cmds++;
 		}
-#if 0
-		if (!ENGINE_load_private_key(e, key_paths[i], NULL, NULL)) {
-			ERR_print_errors_fp(stderr);
-			failure = 1;
-			continue;
-		}
-#endif
-		failure = run_test();
+
+		printf("%s: Test %d with generated TPM key\n", argv[0], i);
+		failure = run_test(NULL);
+		printf("%s: Done.\n", argv[0]);
 	}
 
 	/* Release the functional reference from ENGINE_init() */
 	ENGINE_finish(e);
 	e = NULL;
 
-	return failure ? 5 : 0;
+	return failure ? 6 : 0;
 }
