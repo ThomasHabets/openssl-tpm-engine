@@ -687,7 +687,7 @@ retry:
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 			return NULL;
 		}
-
+#if 0
 		if ((result = p_tspi_GetPolicyObject(hKey, TSS_POLICY_USAGE,
 						     &hPolicy))) {
 			p_tspi_Context_CloseObject(hContext, hKey);
@@ -704,6 +704,35 @@ retry:
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 			return 0;
 		}
+#else
+		if ((result = p_tspi_Context_CreateObject(hContext,
+							 TSS_OBJECT_TYPE_POLICY,
+							 TSS_POLICY_USAGE,
+							 &hPolicy))) {
+			p_tspi_Context_CloseObject(hContext, hKey);
+			free(auth);
+			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+
+		if ((result = p_tspi_Policy_AssignToObject(hPolicy, hKey))) {
+			p_tspi_Context_CloseObject(hContext, hKey);
+			p_tspi_Context_CloseObject(hContext, hPolicy);
+			free(auth);
+			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+
+		if ((result = p_tspi_Policy_SetSecret(hPolicy,
+						      TSS_SECRET_MODE_PLAIN,
+						      strlen(auth), auth))) {
+			p_tspi_Context_CloseObject(hContext, hKey);
+			p_tspi_Context_CloseObject(hContext, hPolicy);
+			free(auth);
+			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
+			return 0;
+		}
+#endif
 
 		free(auth);
 	}
