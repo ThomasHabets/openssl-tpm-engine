@@ -274,7 +274,7 @@ int main(int argc, char **argv)
 	}
 
 	if (srk_authusage) {
-		BYTE *authdata = calloc(1, 128);
+		char *authdata = calloc(1, 128);
 
 		if (!authdata) {
 			fprintf(stderr, "malloc failed.\n");
@@ -302,7 +302,7 @@ int main(int argc, char **argv)
 		if ((result = Tspi_Policy_SetSecret(srkUsagePolicy,
 						    TSS_SECRET_MODE_PLAIN,
 						    strlen(authdata),
-						    authdata))) {
+						    (BYTE *)authdata))) {
 			print_error("Tspi_Policy_SetSecret", result);
 			free(authdata);
 			Tspi_Context_Close(hContext);
@@ -313,11 +313,11 @@ int main(int argc, char **argv)
 	}
 
 	if (auth) {
-		//Get Policy Object
-		if ((result = Tspi_GetPolicyObject(hKey, TSS_POLICY_USAGE,
-						   &keyUsagePolicy))) {
-			print_error("Tspi_GetPolicyObject", result);
-			Tspi_Context_CloseObject(hContext, hKey);
+		if ((result = Tspi_Context_CreateObject(hContext,
+							TSS_OBJECT_TYPE_POLICY,
+							TSS_POLICY_USAGE,
+							&keyUsagePolicy))) {
+			print_error("Tspi_Context_CreateObject", result);
 			Tspi_Context_Close(hContext);
 			exit(result);
 		}
@@ -332,7 +332,7 @@ int main(int argc, char **argv)
 				exit(result);
 			}
 		} else {
-			BYTE *authdata = calloc(1, 128);
+			char *authdata = calloc(1, 128);
 
 			if (!authdata) {
 				fprintf(stderr, "malloc failed.\n");
@@ -352,7 +352,7 @@ int main(int argc, char **argv)
 			if ((result = Tspi_Policy_SetSecret(keyUsagePolicy,
 							    TSS_SECRET_MODE_PLAIN,
 							    strlen(authdata),
-							    authdata))) {
+							    (BYTE *)authdata))) {
 				print_error("Tspi_Policy_SetSecret", result);
 				free(authdata);
 				Tspi_Context_Close(hContext);
@@ -361,12 +361,19 @@ int main(int argc, char **argv)
 
 			free(authdata);
 		}
+
+		if ((result = Tspi_Policy_AssignToObject(keyUsagePolicy, hKey))) {
+			print_error("Tspi_Policy_AssignToObject", result);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(result);
+		}
 	}
 
 	// Create or Wrap Key
 	if (wrap) {
 		char n[256], p[128];
-		int size_n, size_p;
+		unsigned int size_n, size_p;
 		BYTE *pubSRK;
 
 		/* Pull the PubKRK out of the TPM */
@@ -393,7 +400,8 @@ int main(int argc, char **argv)
 			exit(-1);
 		}
 
-		if (openssl_get_modulus_and_prime(rsa, &size_n, n, &size_p, p)) {
+		if (openssl_get_modulus_and_prime(rsa, &size_n, (unsigned char *)n,
+						  &size_p, (unsigned char *)p)) {
 			fprintf(stderr, "Error getting modulus and prime!\n");
 			RSA_free(rsa);
 			Tspi_Context_CloseObject(hContext, hKey);
@@ -403,7 +411,7 @@ int main(int argc, char **argv)
 
 		if ((result = Tspi_SetAttribData(hKey, TSS_TSPATTRIB_RSAKEY_INFO,
 						 TSS_TSPATTRIB_KEYINFO_RSA_MODULUS,
-						 size_n, n))) {
+						 size_n, (BYTE *)n))) {
 			print_error("Tspi_SetAttribData (RSA modulus)", result);
 			RSA_free(rsa);
 			Tspi_Context_CloseObject(hContext, hKey);
@@ -413,7 +421,7 @@ int main(int argc, char **argv)
 
 		if ((result = Tspi_SetAttribData(hKey, TSS_TSPATTRIB_KEY_BLOB,
 						 TSS_TSPATTRIB_KEYBLOB_PRIVATE_KEY,
-						 size_p, p))) {
+						 size_p, (BYTE *)p))) {
 			print_error("Tspi_SetAttribData (private key)", result);
 			RSA_free(rsa);
 			Tspi_Context_CloseObject(hContext, hKey);
