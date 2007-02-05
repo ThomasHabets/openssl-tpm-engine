@@ -67,6 +67,9 @@ int test_num[] = { 1, 1, 2, 2 };
 
 #define DATA_SIZE	33
 #define KEY_SIZE_BITS	512
+#define ENTROPY_SIZE    4097
+
+#define RAND_DEVICE	"/dev/urandom"
 
 int
 run_test(EVP_PKEY *key)
@@ -147,6 +150,9 @@ main(int argc, char **argv)
 	int post_num, failure = 0, i;
 	ENGINE *e;
 	EVP_PKEY *key;
+	FILE *f;
+	char entropy[ENTROPY_SIZE];
+	int entropy_len = ENTROPY_SIZE;
         const char *engine_id = "tpm";
 
 	if (!argv[1]) {
@@ -207,6 +213,33 @@ main(int argc, char **argv)
 	failure = run_test(key);
 	printf("%s: Done.\n", argv[0]);
 
+	/*
+	 * Test 3
+	 *
+	 * Call stir random through the RAND interface. The only "test" being done
+	 * here is that the engine doesn't segfault, since there is no return value.
+	 *
+	 */
+	if ((f = fopen(RAND_DEVICE, "r")) == NULL) {
+		ERR("Error opering rand device %s to get entropy string", RAND_DEVICE);
+		return 5;
+	}
+
+	if (fread(entropy, entropy_len, 1, f) != 1) {
+		ERR("Error reading from rand device %s to get entropy string", RAND_DEVICE);
+		fclose(f);
+		return 6;
+	}
+	fclose(f);
+
+	RAND_seed(entropy, entropy_len);
+
+	/*
+	 * Test 4
+	 *
+	 * Test auth data passthrough to the engine
+	 *
+	 */
 	for (i = 0; i < 4 && !failure; i++) {
 		post_cmds = test_cmds[i];
 		post_num = test_num[i];
@@ -218,7 +251,7 @@ main(int argc, char **argv)
 				ERR("Post command %d failed", i);
 				failure = 1;
 				ENGINE_finish(e);
-				return 5;
+				return 7;
 			}
 			post_cmds++;
 		}
@@ -232,5 +265,5 @@ main(int argc, char **argv)
 	ENGINE_finish(e);
 	e = NULL;
 
-	return failure ? 6 : 0;
+	return failure ? 8 : 0;
 }
