@@ -2,8 +2,9 @@ SUBDIRS=. test
 
 EXTRA_DIST = README  openssl.cnf.sample
 
-lib_LTLIBRARIES=libtpm.la
+openssl_engine_LTLIBRARIES=libtpm.la
 bin_PROGRAMS=create_tpm_key
+openssl_enginedir=@libdir@/openssl/engines
 
 libtpm_la_LIBADD=-L@OPENSSL_LIB_DIR@ -lcrypto -lc
 libtpm_la_CFLAGS=-I@OPENSSL_INCLUDE_DIR@
