@@ -44,9 +44,6 @@ AC_ARG_WITH(openssl,
 	 AC_SUBST(OPENSSL_LIB_DIR)
 	 AC_SUBST(OPENSSL_INCLUDE_DIR)])
 
-# for the correct install target
-libdir="$OPENSSL_LIB_DIR/engines"
-
 AC_DISABLE_STATIC
 AC_PROG_CC
 AC_PROG_LIBTOOL
