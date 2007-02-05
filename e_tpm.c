@@ -305,7 +305,7 @@ int tpm_load_srk(UI_METHOD *ui)
 		return 0;
 	}
 
-	if (!tpm_engine_get_auth(ui, auth, 128, "SRK authorization: ")) {
+	if (!tpm_engine_get_auth(ui, (char *)auth, 128, "SRK authorization: ")) {
 		p_tspi_Context_CloseObject(hContext, hSRK);
 		free(auth);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
@@ -314,7 +314,7 @@ int tpm_load_srk(UI_METHOD *ui)
 	/* secret_mode is a global that may be set by engine ctrl
 	 * commands.  By default, its set to TSS_SECRET_MODE_PLAIN */
 	if ((result = p_tspi_Policy_SetSecret(hSRKPolicy, secret_mode,
-					      strlen(auth), auth))) {
+					      strlen((char *)auth), auth))) {
 		p_tspi_Context_CloseObject(hContext, hSRK);
 		free(auth);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
@@ -680,31 +680,14 @@ retry:
 			return NULL;
 		}
 
-		if (!tpm_engine_get_auth(ui, auth, 128,
+		if (!tpm_engine_get_auth(ui, (char *)auth, 128,
 					 "TPM Key Password: ")) {
 			p_tspi_Context_CloseObject(hContext, hKey);
 			free(auth);
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 			return NULL;
 		}
-#if 0
-		if ((result = p_tspi_GetPolicyObject(hKey, TSS_POLICY_USAGE,
-						     &hPolicy))) {
-			p_tspi_Context_CloseObject(hContext, hKey);
-			free(auth);
-			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
-			return 0;
-		}
 
-		if ((result = p_tspi_Policy_SetSecret(hPolicy,
-						      TSS_SECRET_MODE_PLAIN,
-						      strlen(auth), auth))) {
-			p_tspi_Context_CloseObject(hContext, hKey);
-			free(auth);
-			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
-			return 0;
-		}
-#else
 		if ((result = p_tspi_Context_CreateObject(hContext,
 							 TSS_OBJECT_TYPE_POLICY,
 							 TSS_POLICY_USAGE,
@@ -725,14 +708,13 @@ retry:
 
 		if ((result = p_tspi_Policy_SetSecret(hPolicy,
 						      TSS_SECRET_MODE_PLAIN,
-						      strlen(auth), auth))) {
+						      strlen((char *)auth), auth))) {
 			p_tspi_Context_CloseObject(hContext, hKey);
 			p_tspi_Context_CloseObject(hContext, hPolicy);
 			free(auth);
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 			return 0;
 		}
-#endif
 
 		free(auth);
 	}
@@ -775,7 +757,7 @@ static int tpm_create_srk_policy(void *secret)
 	if (secret_mode == TSS_SECRET_MODE_SHA1)
 		secret_len = SHA_DIGEST_LENGTH;
 	else {
-		secret_len = (secret == NULL) ? 0 : strlen((BYTE *)secret);
+		secret_len = (secret == NULL) ? 0 : strlen((char *)secret);
 		DBG("Using SRK secret = %s", (BYTE *)secret);
 	}
 
