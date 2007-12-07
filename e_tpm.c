@@ -1,19 +1,11 @@
+
 /*
- *   Copyright (C) International Business Machines  Corp., 2005
+ * Licensed Materials - Property of IBM
  *
- *   This program is free software;  you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
+ * OpenSSL TPM engine
  *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU General Public License for more details.
+ * Copyright (C) International Business Machines  Corp., 2005
  *
- *   You should have received a copy of the GNU General Public License
- *   along with this program;  if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 /*
@@ -94,7 +86,7 @@ static int tpm_rsa_pub_enc(int, const unsigned char *, unsigned char *, RSA *, i
 static int tpm_rsa_priv_dec(int, const unsigned char *, unsigned char *, RSA *, int);
 static int tpm_rsa_priv_enc(int, const unsigned char *, unsigned char *, RSA *, int);
 //static int tpm_rsa_sign(int, const unsigned char *, unsigned int, unsigned char *, unsigned int *, const RSA *);
-static int tpm_rsa_keygen(RSA *, int, BIGNUM *, BN_GENCB *);
+static int tpm_rsa_keygen(RSA *, int, BIGNUM *);//, BN_GENCB *);
 #endif
 
 /* random functions */
@@ -1143,7 +1135,8 @@ static int tpm_rsa_priv_enc(int flen,
  * padding as well as PKCSv1.5, since signatures will need to be done on
  * data larger than 20 bytes, which is the max size *regardless of key size*
  * for an OAEP key signing using the TPM */
-static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
+//static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
+static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e)//, BN_GENCB *cb)
 {
 	TSS_RESULT result;
 	TSS_FLAG initFlags = TSS_KEY_TYPE_LEGACY;
