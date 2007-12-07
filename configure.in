@@ -21,12 +21,12 @@ if test "$test_CFLAGS" != set; then
 	fi
 fi
 
-if test "${OPENSSL_LIB_DIR+set}" != set; then
-	OPENSSL_LIB_DIR="/usr/local/ssl/lib"
-fi
-if test "${OPENSSL_INCLUDE_DIR+set}" != set; then
-	OPENSSL_INCLUDE_DIR="/usr/local/ssl/include"
-fi
+#if test "${OPENSSL_LIB_DIR+set}" != set; then
+#	OPENSSL_LIB_DIR="/usr/local/ssl/lib"
+#fi
+#if test "${OPENSSL_INCLUDE_DIR+set}" != set; then
+#	OPENSSL_INCLUDE_DIR="/usr/local/ssl/include"
+#fi
 
 # Non-standard OpenSSL
 AC_MSG_CHECKING([Non-standard OpenSSL])
