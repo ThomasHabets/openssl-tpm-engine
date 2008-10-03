@@ -84,7 +84,7 @@ static int tpm_rsa_pub_enc(int, const unsigned char *, unsigned char *, RSA *, i
 static int tpm_rsa_priv_dec(int, const unsigned char *, unsigned char *, RSA *, int);
 static int tpm_rsa_priv_enc(int, const unsigned char *, unsigned char *, RSA *, int);
 //static int tpm_rsa_sign(int, const unsigned char *, unsigned int, unsigned char *, unsigned int *, const RSA *);
-static int tpm_rsa_keygen(RSA *, int, BIGNUM *);//, BN_GENCB *);
+static int tpm_rsa_keygen(RSA *, int, BIGNUM *, BN_GENCB *);
 #endif
 
 /* random functions */
@@ -1134,8 +1134,7 @@ static int tpm_rsa_priv_enc(int flen,
  * padding as well as PKCSv1.5, since signatures will need to be done on
  * data larger than 20 bytes, which is the max size *regardless of key size*
  * for an OAEP key signing using the TPM */
-//static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
-static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e)//, BN_GENCB *cb)
+static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
 {
 	TSS_RESULT result;
 	TSS_FLAG initFlags = TSS_KEY_TYPE_LEGACY;
