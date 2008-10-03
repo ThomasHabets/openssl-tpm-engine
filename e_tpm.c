@@ -25,6 +25,7 @@
 #include <openssl/objects.h>
 #include <openssl/sha.h>
 #include <openssl/bn.h>
+#include <openssl/pem.h>
 
 #include <tss/platform.h>
 #include <tss/tcpa_defines.h>
@@ -607,14 +608,13 @@ int fill_out_rsa_object(RSA *rsa, TSS_HKEY hKey)
 static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 				     UI_METHOD *ui, void *cb_data)
 {
+	ASN1_OCTET_STRING *blobstr;
 	TSS_HKEY hKey;
 	TSS_RESULT result;
-	BYTE blob_buf[4096];
 	UINT32 authusage;
 	RSA *rsa;
 	EVP_PKEY *pkey;
 	BIO *bf;
-	int rc;
 
 
 	DBG("%s", __FUNCTION__);
@@ -634,24 +634,26 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 		       TPM_R_FILE_NOT_FOUND);
 		return NULL;
 	}
-retry:
-	if ((rc = BIO_read(bf, &blob_buf[0], 4096)) < 0) {
+
+	blobstr = PEM_ASN1_read_bio((void *)d2i_ASN1_OCTET_STRING,
+				    "TSS KEY BLOB", bf, NULL, NULL, NULL);
+	if (!blobstr) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
 		       TPM_R_FILE_READ_FAILED);
 		BIO_free(bf);
 		return NULL;
-	} else if (rc == 0 && BIO_should_retry(bf)) {
-		goto retry;
 	}
 
 	BIO_free(bf);
-	DBG("Loading blob of size: %d", rc);
-	if ((result = p_tspi_Context_LoadKeyByBlob(hContext, hSRK, rc,
-					blob_buf, &hKey))) {
+	DBG("Loading blob of size: %d", blobstr->length);
+	if ((result = p_tspi_Context_LoadKeyByBlob(hContext, hSRK,
+						   blobstr->length,
+						   blobstr->data, &hKey))) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
 		       TPM_R_REQUEST_FAILED);
 		return NULL;
 	}
+	ASN1_OCTET_STRING_free(blobstr);
 
 	if ((result = p_tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_AUTHUSAGE,

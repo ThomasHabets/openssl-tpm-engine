@@ -141,7 +141,10 @@ int main(int argc, char **argv)
 	TSS_HPOLICY	srkUsagePolicy, keyUsagePolicy, keyMigrationPolicy;
 	BYTE		*blob;
 	UINT32		blob_size, srk_authusage;
-	FILE		*out;
+	BIO		*outb;
+	ASN1_OCTET_STRING *blob_str;
+	unsigned char	*blob_asn1 = NULL;
+	int		asn1_len;
 	char		*filename, c, *openssl_key = NULL;
 	int		option_index, auth = 0, popup = 0, wrap = 0;
 	UINT32		enc_scheme = TSS_ES_RSAESPKCSV15;
@@ -492,22 +495,25 @@ int main(int argc, char **argv)
 		exit(result);
 	}
 
-	if ((out = fopen(filename, "w")) == NULL) {
-		print_error("fopen", errno);
+	if ((outb = BIO_new_file(filename, "w")) == NULL) {
+                fprintf(stderr, "Error opening file for write: %s\n", filename);
 		Tspi_Context_CloseObject(hContext, hKey);
 		Tspi_Context_Close(hContext);
-		exit(result);
+		exit(-1);
 	}
-
-	if (fwrite(blob, blob_size, 1, out) != 1) {
-		print_error("fwrite", errno);
+	blob_str = ASN1_OCTET_STRING_new();
+	if (!blob_str) {
+                fprintf(stderr, "Error allocating ASN1_OCTET_STRING\n");
 		Tspi_Context_CloseObject(hContext, hKey);
 		Tspi_Context_Close(hContext);
-		fclose(out);
-		exit(result);
-	}
+		exit(-1);
+	}		
 
-	fclose(out);
+	ASN1_STRING_set(blob_str, blob, blob_size);
+	asn1_len = i2d_ASN1_OCTET_STRING(blob_str, &blob_asn1);
+	PEM_write_bio(outb, "TSS KEY BLOB", "", blob_asn1, asn1_len);
+
+	BIO_free(outb);
 	Tspi_Context_Close(hContext);
 
 	printf("Success.\n");
