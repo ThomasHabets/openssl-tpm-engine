@@ -38,34 +38,10 @@
 
 #include "e_tpm.h"
 
+//#define DLOPEN_TSPI
+
 #ifndef OPENSSL_NO_HW
 #ifndef OPENSSL_NO_HW_TPM
-
-/* Tspi library functions */
-static const char *TPM_F_Context_Create = "Tspi_Context_Create";
-static const char *TPM_F_Context_Close = "Tspi_Context_Close";
-static const char *TPM_F_Context_Connect = "Tspi_Context_Connect";
-static const char *TPM_F_Context_CreateObject = "Tspi_Context_CreateObject";
-static const char *TPM_F_Context_CloseObject = "Tspi_Context_CloseObject";
-static const char *TPM_F_Context_FreeMemory = "Tspi_Context_FreeMemory";
-static const char *TPM_F_Context_LoadKeyByBlob = "Tspi_Context_LoadKeyByBlob";
-static const char *TPM_F_Context_LoadKeyByUUID = "Tspi_Context_LoadKeyByUUID";
-static const char *TPM_F_Context_GetTpmObject = "Tspi_Context_GetTpmObject";
-static const char *TPM_F_TPM_GetRandom = "Tspi_TPM_GetRandom";
-static const char *TPM_F_TPM_StirRandom = "Tspi_TPM_StirRandom";
-static const char *TPM_F_Key_CreateKey = "Tspi_Key_CreateKey";
-static const char *TPM_F_Key_LoadKey = "Tspi_Key_LoadKey";
-static const char *TPM_F_Data_Bind = "Tspi_Data_Bind";
-static const char *TPM_F_Data_Unbind = "Tspi_Data_Unbind";
-static const char *TPM_F_GetAttribData = "Tspi_GetAttribData";
-static const char *TPM_F_SetAttribData = "Tspi_SetAttribData";
-static const char *TPM_F_GetAttribUint32 = "Tspi_GetAttribUint32";
-static const char *TPM_F_SetAttribUint32 = "Tspi_SetAttribUint32";
-static const char *TPM_F_GetPolicyObject = "Tspi_GetPolicyObject";
-static const char *TPM_F_Hash_Sign = "Tspi_Hash_Sign";
-static const char *TPM_F_Hash_SetHashValue = "Tspi_Hash_SetHashValue";
-static const char *TPM_F_Policy_SetSecret = "Tspi_Policy_SetSecret";
-static const char *TPM_F_Policy_AssignToObject = "Tspi_Policy_AssignToObject";
 
 /* engine specific functions */
 static int tpm_engine_destroy(ENGINE *);
@@ -156,6 +132,7 @@ static UINT32       secret_mode = TSS_SECRET_MODE_PLAIN;
 /* varibles used to get/set CRYPTO_EX_DATA values */
 int  ex_app_data = TPM_ENGINE_EX_DATA_UNINIT;
 
+#ifdef DLOPEN_TSPI
 /* This is a process-global DSO handle used for loading and unloading
  * the TSS library. NB: This is only set (or unset) during an
  * init() or finish() call (reference counts permitting) and they're
@@ -190,6 +167,33 @@ static unsigned int (*p_tspi_Hash_SetHashValue)();
 static unsigned int (*p_tspi_GetPolicyObject)();
 static unsigned int (*p_tspi_Policy_SetSecret)();
 static unsigned int (*p_tspi_Policy_AssignToObject)();
+
+/* Override the real function calls to use our indirect pointers */
+#define Tspi_Context_Create p_tspi_Context_Create
+#define Tspi_Context_Close p_tspi_Context_Close
+#define Tspi_Context_Connect p_tspi_Context_Connect
+#define Tspi_Context_CreateObject p_tspi_Context_CreateObject
+#define Tspi_Context_CloseObject p_tspi_Context_CloseObject
+#define Tspi_Context_FreeMemory p_tspi_Context_FreeMemory
+#define Tspi_Context_LoadKeyByBlob p_tspi_Context_LoadKeyByBlob
+#define Tspi_Context_LoadKeyByUUID p_tspi_Context_LoadKeyByUUID
+#define Tspi_Context_GetTpmObject p_tspi_Context_GetTpmObject
+#define Tspi_TPM_GetRandom p_tspi_TPM_GetRandom
+#define Tspi_TPM_StirRandom p_tspi_TPM_StirRandom
+#define Tspi_Key_CreateKey p_tspi_Key_CreateKey
+#define Tspi_Key_LoadKey p_tspi_Key_LoadKey
+#define Tspi_Data_Bind p_tspi_Data_Bind
+#define Tspi_Data_Unbind p_tspi_Data_Unbind
+#define Tspi_GetAttribData p_tspi_GetAttribData
+#define Tspi_SetAttribData p_tspi_SetAttribData
+#define Tspi_GetAttribUint32 p_tspi_GetAttribUint32
+#define Tspi_SetAttribUint32 p_tspi_SetAttribUint32
+#define Tspi_GetPolicyObject p_tspi_GetPolicyObject
+#define Tspi_Hash_Sign p_tspi_Hash_Sign
+#define Tspi_Hash_SetHashValue p_tspi_Hash_SetHashValue
+#define Tspi_Policy_SetSecret p_tspi_Policy_SetSecret
+#define Tspi_Policy_AssignToObject p_tspi_Policy_AssignToObject
+#endif /* DLOPEN_TSPI */
 
 /* This internal function is used by ENGINE_tpm() and possibly by the
  * "dynamic" ENGINE support too */
@@ -250,16 +254,16 @@ int tpm_load_srk(UI_METHOD *ui)
 		return 1;
 	}
 
-	if ((result = p_tspi_Context_LoadKeyByUUID(hContext, TSS_PS_TYPE_SYSTEM,
+	if ((result = Tspi_Context_LoadKeyByUUID(hContext, TSS_PS_TYPE_SYSTEM,
 						   SRK_UUID, &hSRK))) {
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
-	if ((result = p_tspi_GetAttribUint32(hSRK, TSS_TSPATTRIB_KEY_INFO,
+	if ((result = Tspi_GetAttribUint32(hSRK, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_AUTHUSAGE,
 					     &authusage))) {
-		p_tspi_Context_CloseObject(hContext, hSRK);
+		Tspi_Context_CloseObject(hContext, hSRK);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
@@ -275,7 +279,7 @@ int tpm_load_srk(UI_METHOD *ui)
 	 * secret */
 	if (hSRKPolicy) {
 		DBG("Found an already initialized SRK policy, using it");
-		if ((result = p_tspi_Policy_AssignToObject(hSRKPolicy, hSRK))) {
+		if ((result = Tspi_Policy_AssignToObject(hSRKPolicy, hSRK))) {
 			TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 			return 0;
 		}
@@ -283,9 +287,9 @@ int tpm_load_srk(UI_METHOD *ui)
 		return 1;
 	}
 
-	if ((result = p_tspi_GetPolicyObject(hSRK, TSS_POLICY_USAGE,
+	if ((result = Tspi_GetPolicyObject(hSRK, TSS_POLICY_USAGE,
 					&hSRKPolicy))) {
-		p_tspi_Context_CloseObject(hContext, hSRK);
+		Tspi_Context_CloseObject(hContext, hSRK);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
@@ -296,16 +300,16 @@ int tpm_load_srk(UI_METHOD *ui)
 	}
 
 	if (!tpm_engine_get_auth(ui, (char *)auth, 128, "SRK authorization: ")) {
-		p_tspi_Context_CloseObject(hContext, hSRK);
+		Tspi_Context_CloseObject(hContext, hSRK);
 		free(auth);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 	}
 
 	/* secret_mode is a global that may be set by engine ctrl
 	 * commands.  By default, its set to TSS_SECRET_MODE_PLAIN */
-	if ((result = p_tspi_Policy_SetSecret(hSRKPolicy, secret_mode,
+	if ((result = Tspi_Policy_SetSecret(hSRKPolicy, secret_mode,
 					      strlen((char *)auth), auth))) {
-		p_tspi_Context_CloseObject(hContext, hSRK);
+		Tspi_Context_CloseObject(hContext, hSRK);
 		free(auth);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
 		return 0;
@@ -315,6 +319,7 @@ int tpm_load_srk(UI_METHOD *ui)
 
 	return 1;
 }
+
 
 /* Destructor (complements the "ENGINE_tpm()" constructor) */
 static int tpm_engine_destroy(ENGINE * e)
@@ -329,34 +334,11 @@ static int tpm_engine_destroy(ENGINE * e)
 /* initialisation function */
 static int tpm_engine_init(ENGINE * e)
 {
-	void (*p1) ();
-	void (*p2) ();
-	void (*p3) ();
-	void (*p4) ();
-	void (*p5) ();
-	void (*p6) ();
-	void (*p7) ();
-	void (*p8) ();
-	void (*p9) ();
-	void (*p10) ();
-	void (*p11) ();
-	void (*p12) ();
-	void (*p13) ();
-	void (*p14) ();
-	void (*p15) ();
-	void (*p16) ();
-	void (*p17) ();
-	void (*p18) ();
-	void (*p19) ();
-	void (*p20) ();
-	void (*p21) ();
-	void (*p22) ();
-	void (*p23) ();
-	void (*p24) ();
 	TSS_RESULT result;
 
 	DBG("%s", __FUNCTION__);
 
+#ifdef DLOPEN_TSPI
 	if (tpm_dso != NULL) {
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_ALREADY_LOADED);
 		return 1;
@@ -367,73 +349,50 @@ static int tpm_engine_init(ENGINE * e)
 		goto err;
 	}
 
-	if (!(p1  = DSO_bind_func(tpm_dso, TPM_F_Context_Create)) ||
-	    !(p2  = DSO_bind_func(tpm_dso, TPM_F_Context_Close)) ||
-	    !(p3  = DSO_bind_func(tpm_dso, TPM_F_Context_Connect)) ||
-	    !(p4  = DSO_bind_func(tpm_dso, TPM_F_TPM_GetRandom)) ||
-	    !(p5  = DSO_bind_func(tpm_dso, TPM_F_Key_CreateKey)) ||
-	    !(p6  = DSO_bind_func(tpm_dso, TPM_F_Data_Bind)) ||
-	    !(p7  = DSO_bind_func(tpm_dso, TPM_F_Data_Unbind)) ||
-	    !(p8  = DSO_bind_func(tpm_dso, TPM_F_Context_CreateObject)) ||
-	    !(p9  = DSO_bind_func(tpm_dso, TPM_F_Context_FreeMemory)) ||
-	    !(p10 = DSO_bind_func(tpm_dso, TPM_F_Key_LoadKey)) ||
-	    !(p11 = DSO_bind_func(tpm_dso, TPM_F_Context_LoadKeyByUUID)) ||
-	    !(p12 = DSO_bind_func(tpm_dso, TPM_F_GetAttribData)) ||
-	    !(p13 = DSO_bind_func(tpm_dso, TPM_F_Hash_Sign)) ||
-	    !(p14 = DSO_bind_func(tpm_dso, TPM_F_Context_CloseObject)) ||
-	    !(p15 = DSO_bind_func(tpm_dso, TPM_F_Hash_SetHashValue)) ||
-	    !(p16 = DSO_bind_func(tpm_dso, TPM_F_SetAttribUint32)) ||
-	    !(p17 = DSO_bind_func(tpm_dso, TPM_F_GetPolicyObject)) ||
-	    !(p18 = DSO_bind_func(tpm_dso, TPM_F_Policy_SetSecret)) ||
-	    !(p19 = DSO_bind_func(tpm_dso, TPM_F_TPM_StirRandom)) ||
-	    !(p20 = DSO_bind_func(tpm_dso, TPM_F_Context_LoadKeyByBlob)) ||
-	    !(p21 = DSO_bind_func(tpm_dso, TPM_F_Context_GetTpmObject)) ||
-	    !(p22 = DSO_bind_func(tpm_dso, TPM_F_GetAttribUint32)) ||
-	    !(p23 = DSO_bind_func(tpm_dso, TPM_F_SetAttribData)) ||
-	    !(p24 = DSO_bind_func(tpm_dso, TPM_F_Policy_AssignToObject))
+#define bind_tspi_func(dso, func) (p_tspi_##func = (void *)DSO_bind_func(dso, "Tspi_" #func))
+
+	if (!bind_tspi_func(tpm_dso, Context_Create) ||
+	    !bind_tspi_func(tpm_dso, Context_Close) ||
+	    !bind_tspi_func(tpm_dso, Context_Connect) ||
+	    !bind_tspi_func(tpm_dso, TPM_GetRandom) ||
+	    !bind_tspi_func(tpm_dso, Key_CreateKey) ||
+	    !bind_tspi_func(tpm_dso, Data_Bind) ||
+	    !bind_tspi_func(tpm_dso, Data_Unbind) ||
+	    !bind_tspi_func(tpm_dso, Context_CreateObject) ||
+	    !bind_tspi_func(tpm_dso, Context_FreeMemory) ||
+	    !bind_tspi_func(tpm_dso, Key_LoadKey) ||
+	    !bind_tspi_func(tpm_dso, Context_LoadKeyByUUID) ||
+	    !bind_tspi_func(tpm_dso, GetAttribData) ||
+	    !bind_tspi_func(tpm_dso, Hash_Sign) ||
+	    !bind_tspi_func(tpm_dso, Context_CloseObject) ||
+	    !bind_tspi_func(tpm_dso, Hash_SetHashValue) ||
+	    !bind_tspi_func(tpm_dso, SetAttribUint32) ||
+	    !bind_tspi_func(tpm_dso, GetPolicyObject) ||
+	    !bind_tspi_func(tpm_dso, Policy_SetSecret) ||
+	    !bind_tspi_func(tpm_dso, TPM_StirRandom) ||
+	    !bind_tspi_func(tpm_dso, Context_LoadKeyByBlob) ||
+	    !bind_tspi_func(tpm_dso, Context_GetTpmObject) ||
+	    !bind_tspi_func(tpm_dso, GetAttribUint32) ||
+	    !bind_tspi_func(tpm_dso, SetAttribData) ||
+	    !bind_tspi_func(tpm_dso, Policy_AssignToObject)
 	    ) {
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_DSO_FAILURE);
 		goto err;
 	}
+#endif /* DLOPEN_TSPI */
 
-	/* Copy the pointers */
-	p_tspi_Context_Create = (unsigned int (*) ()) p1;
-	p_tspi_Context_Close = (unsigned int (*) ()) p2;
-	p_tspi_Context_Connect = (unsigned int (*) ()) p3;
-	p_tspi_TPM_GetRandom = (unsigned int (*) ()) p4;
-	p_tspi_Key_CreateKey = (unsigned int (*) ()) p5;
-	p_tspi_Data_Bind = (unsigned int (*) ()) p6;
-	p_tspi_Data_Unbind = (unsigned int (*) ()) p7;
-	p_tspi_Context_CreateObject = (unsigned int (*) ()) p8;
-	p_tspi_Context_FreeMemory = (unsigned int (*) ()) p9;
-	p_tspi_Key_LoadKey = (unsigned int (*) ()) p10;
-	p_tspi_Context_LoadKeyByUUID = (unsigned int (*) ()) p11;
-	p_tspi_GetAttribData = (unsigned int (*) ()) p12;
-	p_tspi_Hash_Sign = (unsigned int (*) ()) p13;
-	p_tspi_Context_CloseObject = (unsigned int (*) ()) p14;
-	p_tspi_Hash_SetHashValue = (unsigned int (*) ()) p15;
-	p_tspi_SetAttribUint32 = (unsigned int (*) ()) p16;
-	p_tspi_GetPolicyObject = (unsigned int (*) ()) p17;
-	p_tspi_Policy_SetSecret = (unsigned int (*) ()) p18;
-	p_tspi_TPM_StirRandom = (unsigned int (*) ()) p19;
-	p_tspi_Context_LoadKeyByBlob = (unsigned int (*) ()) p20;
-	p_tspi_Context_GetTpmObject = (unsigned int (*) ()) p21;
-	p_tspi_GetAttribUint32 = (unsigned int (*) ()) p22;
-	p_tspi_SetAttribData = (unsigned int (*) ()) p23;
-	p_tspi_Policy_AssignToObject = (unsigned int (*) ()) p24;
-
-	if ((result = p_tspi_Context_Create(&hContext))) {
+	if ((result = Tspi_Context_Create(&hContext))) {
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_UNIT_FAILURE);
 		goto err;
 	}
 
 	/* XXX allow dest to be specified through pre commands */
-	if ((result = p_tspi_Context_Connect(hContext, NULL))) {
+	if ((result = Tspi_Context_Connect(hContext, NULL))) {
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_UNIT_FAILURE);
 		goto err;
 	}
 
-	if ((result = p_tspi_Context_GetTpmObject(hContext, &hTPM))) {
+	if ((result = Tspi_Context_GetTpmObject(hContext, &hTPM))) {
 		TSSerr(TPM_F_TPM_ENGINE_INIT, TPM_R_UNIT_FAILURE);
 		goto err;
 	}
@@ -443,11 +402,12 @@ static int tpm_engine_init(ENGINE * e)
 	return 1;
 err:
 	if (hContext != NULL_HCONTEXT) {
-		p_tspi_Context_Close(hContext);
+		Tspi_Context_Close(hContext);
 		hContext = NULL_HCONTEXT;
 		hTPM = NULL_HTPM;
 	}
 
+#ifdef DLOPEN_TSPI
 	if (tpm_dso) {
 		DSO_free(tpm_dso);
 		tpm_dso = NULL;
@@ -476,7 +436,7 @@ err:
 	p_tspi_Policy_AssignToObject = NULL;
 	p_tspi_TPM_StirRandom = NULL;
 	p_tspi_TPM_GetRandom = NULL;
-
+#endif
 	return 0;
 }
 
@@ -511,22 +471,23 @@ static int tpm_engine_finish(ENGINE * e)
 {
 	DBG("%s", __FUNCTION__);
 
+#ifdef DLOPEN_TSPI
 	if (tpm_dso == NULL) {
 		TSSerr(TPM_F_TPM_ENGINE_FINISH, TPM_R_NOT_LOADED);
 		return 0;
 	}
-
+#endif
 	if (hContext != NULL_HCONTEXT) {
-		p_tspi_Context_Close(hContext);
+		Tspi_Context_Close(hContext);
 		hContext = NULL_HCONTEXT;
 	}
-
+#ifdef DLOPEN_TSPI
 	if (!DSO_free(tpm_dso)) {
 		TSSerr(TPM_F_TPM_ENGINE_FINISH, TPM_R_DSO_FAILURE);
 		return 0;
 	}
 	tpm_dso = NULL;
-
+#endif
 	return 1;
 }
 
@@ -539,14 +500,14 @@ int fill_out_rsa_object(RSA *rsa, TSS_HKEY hKey)
 
 	DBG("%s", __FUNCTION__);
 
-	if ((result = p_tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
+	if ((result = Tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_ENCSCHEME,
 					     &encScheme))) {
 		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
-	if ((result = p_tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
+	if ((result = Tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_SIGSCHEME,
 					     &sigScheme))) {
 		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_REQUEST_FAILED);
@@ -554,7 +515,7 @@ int fill_out_rsa_object(RSA *rsa, TSS_HKEY hKey)
 	}
 
 	/* pull out the public key and put it into the RSA object */
-	if ((result = p_tspi_GetAttribData(hKey, TSS_TSPATTRIB_RSAKEY_INFO,
+	if ((result = Tspi_GetAttribData(hKey, TSS_TSPATTRIB_RSAKEY_INFO,
 					   TSS_TSPATTRIB_KEYINFO_RSA_MODULUS,
 					   &pubkey_len, &pubkey))) {
 		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_REQUEST_FAILED);
@@ -562,12 +523,12 @@ int fill_out_rsa_object(RSA *rsa, TSS_HKEY hKey)
 	}
 
 	if ((rsa->n = BN_bin2bn(pubkey, pubkey_len, rsa->n)) == NULL) {
-		p_tspi_Context_FreeMemory(hContext, pubkey);
+		Tspi_Context_FreeMemory(hContext, pubkey);
 		TSSerr(TPM_F_TPM_FILL_RSA_OBJECT, TPM_R_BN_CONVERSION_FAILED);
 		return 0;
 	}
 
-	p_tspi_Context_FreeMemory(hContext, pubkey);
+	Tspi_Context_FreeMemory(hContext, pubkey);
 
 	/* set e in the RSA object */
 	if (!rsa->e && ((rsa->e = BN_new()) == NULL)) {
@@ -643,7 +604,7 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 
 	BIO_free(bf);
 	DBG("Loading blob of size: %d", blobstr->length);
-	if ((result = p_tspi_Context_LoadKeyByBlob(hContext, hSRK,
+	if ((result = Tspi_Context_LoadKeyByBlob(hContext, hSRK,
 						   blobstr->length,
 						   blobstr->data, &hKey))) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
@@ -652,10 +613,10 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 	}
 	ASN1_OCTET_STRING_free(blobstr);
 
-	if ((result = p_tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
+	if ((result = Tspi_GetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_AUTHUSAGE,
 					     &authusage))) {
-		p_tspi_Context_CloseObject(hContext, hKey);
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY,
 		       TPM_R_REQUEST_FAILED);
 		return NULL;
@@ -666,42 +627,42 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 		BYTE *auth;
 
 		if ((auth = calloc(1, 128)) == NULL) {
-			p_tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_CloseObject(hContext, hKey);
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, ERR_R_MALLOC_FAILURE);
 			return NULL;
 		}
 
 		if (!tpm_engine_get_auth(ui, (char *)auth, 128,
 					 "TPM Key Password: ")) {
-			p_tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_CloseObject(hContext, hKey);
 			free(auth);
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 			return NULL;
 		}
 
-		if ((result = p_tspi_Context_CreateObject(hContext,
+		if ((result = Tspi_Context_CreateObject(hContext,
 							 TSS_OBJECT_TYPE_POLICY,
 							 TSS_POLICY_USAGE,
 							 &hPolicy))) {
-			p_tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_CloseObject(hContext, hKey);
 			free(auth);
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 			return 0;
 		}
 
-		if ((result = p_tspi_Policy_AssignToObject(hPolicy, hKey))) {
-			p_tspi_Context_CloseObject(hContext, hKey);
-			p_tspi_Context_CloseObject(hContext, hPolicy);
+		if ((result = Tspi_Policy_AssignToObject(hPolicy, hKey))) {
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_CloseObject(hContext, hPolicy);
 			free(auth);
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 			return 0;
 		}
 
-		if ((result = p_tspi_Policy_SetSecret(hPolicy,
+		if ((result = Tspi_Policy_SetSecret(hPolicy,
 						      TSS_SECRET_MODE_PLAIN,
 						      strlen((char *)auth), auth))) {
-			p_tspi_Context_CloseObject(hContext, hKey);
-			p_tspi_Context_CloseObject(hContext, hPolicy);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_CloseObject(hContext, hPolicy);
 			free(auth);
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 			return 0;
@@ -712,7 +673,7 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 
 	/* create the new objects to return */
 	if ((pkey = EVP_PKEY_new()) == NULL) {
-		p_tspi_Context_CloseObject(hContext, hKey);
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, ERR_R_MALLOC_FAILURE);
 		return NULL;
 	}
@@ -720,7 +681,7 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 
 	if ((rsa = RSA_new()) == NULL) {
 		EVP_PKEY_free(pkey);
-		p_tspi_Context_CloseObject(hContext, hKey);
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, ERR_R_MALLOC_FAILURE);
 		return NULL;
 	}
@@ -732,7 +693,7 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 	if (!fill_out_rsa_object(rsa, hKey)) {
 		EVP_PKEY_free(pkey);
 		RSA_free(rsa);
-		p_tspi_Context_CloseObject(hContext, hKey);
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 		return NULL;
 	}
@@ -754,7 +715,7 @@ static int tpm_create_srk_policy(void *secret)
 
 	if (hSRKPolicy == NULL_HPOLICY) {
 		DBG("Creating SRK policy");
-		if ((result = p_tspi_Context_CreateObject(hContext,
+		if ((result = Tspi_Context_CreateObject(hContext,
 							  TSS_OBJECT_TYPE_POLICY,
 							  TSS_POLICY_USAGE,
 							  &hSRKPolicy))) {
@@ -764,7 +725,7 @@ static int tpm_create_srk_policy(void *secret)
 		}
 	}
 
-	if ((result = p_tspi_Policy_SetSecret(hSRKPolicy, secret_mode,
+	if ((result = Tspi_Policy_SetSecret(hSRKPolicy, secret_mode,
 					      secret_len, (BYTE *)secret))) {
 		TSSerr(TPM_F_TPM_CREATE_SRK_POLICY, TPM_R_REQUEST_FAILED);
 		return 0;
@@ -775,7 +736,7 @@ static int tpm_create_srk_policy(void *secret)
 
 static int tpm_engine_ctrl(ENGINE * e, int cmd, long i, void *p, void (*f) ())
 {
-	int initialised = ((tpm_dso == NULL) ? 0 : 1);
+	int initialised = !!hContext;
 	DBG("%s", __FUNCTION__);
 
 	switch (cmd) {
@@ -896,7 +857,7 @@ static int tpm_rsa_priv_dec(int flen,
 	}
 
 	if (app_data->hEncData == NULL_HENCDATA) {
-		if ((result = p_tspi_Context_CreateObject(hContext,
+		if ((result = Tspi_Context_CreateObject(hContext,
 							  TSS_OBJECT_TYPE_ENCDATA,
 							  TSS_ENCDATA_BIND,
 							  &app_data->hEncData))) {
@@ -920,7 +881,7 @@ static int tpm_rsa_priv_dec(int flen,
 	}
 
 	in_len = flen;
-	if ((result = p_tspi_SetAttribData(app_data->hEncData,
+	if ((result = Tspi_SetAttribData(app_data->hEncData,
 					   TSS_TSPATTRIB_ENCDATA_BLOB,
 					   TSS_TSPATTRIB_ENCDATABLOB_BLOB,
 					   in_len, from))) {
@@ -928,7 +889,7 @@ static int tpm_rsa_priv_dec(int flen,
 		return 0;
 	}
 
-	if ((result = p_tspi_Data_Unbind(app_data->hEncData, app_data->hKey,
+	if ((result = Tspi_Data_Unbind(app_data->hEncData, app_data->hKey,
 				       &out_len, &out))) {
 		TSSerr(TPM_F_TPM_RSA_PRIV_DEC, TPM_R_REQUEST_FAILED);
 		return 0;
@@ -937,7 +898,7 @@ static int tpm_rsa_priv_dec(int flen,
 	DBG("%s: writing out %d bytes as a signature", __FUNCTION__, out_len);
 
 	memcpy(to, out, out_len);
-	p_tspi_Context_FreeMemory(hContext, out);
+	Tspi_Context_FreeMemory(hContext, out);
 
 	return out_len;
 }
@@ -973,7 +934,7 @@ static int tpm_rsa_pub_enc(int flen,
 	}
 
 	if (app_data->hEncData == NULL_HENCDATA) {
-		if ((result = p_tspi_Context_CreateObject(hContext,
+		if ((result = Tspi_Context_CreateObject(hContext,
 							  TSS_OBJECT_TYPE_ENCDATA,
 							  TSS_ENCDATA_BIND,
 							  &app_data->hEncData))) {
@@ -1024,7 +985,7 @@ static int tpm_rsa_pub_enc(int flen,
 	DBG("Bind: hKey(0x%x) hEncData(0x%x) in_len(%u)", app_data->hKey,
 	    app_data->hEncData, in_len);
 
-	if ((result = p_tspi_Data_Bind(app_data->hEncData, app_data->hKey,
+	if ((result = Tspi_Data_Bind(app_data->hEncData, app_data->hKey,
 				       in_len, from))) {
 		TSSerr(TPM_F_TPM_RSA_PUB_ENC, TPM_R_REQUEST_FAILED);
 		DBG("result = 0x%x (%s)", result,
@@ -1033,7 +994,7 @@ static int tpm_rsa_pub_enc(int flen,
 	}
 
 	/* pull out the bound data and return it */
-	if ((result = p_tspi_GetAttribData(app_data->hEncData,
+	if ((result = Tspi_GetAttribData(app_data->hEncData,
 					   TSS_TSPATTRIB_ENCDATA_BLOB,
 					   TSS_TSPATTRIB_ENCDATABLOB_BLOB,
 					   &out_len, &out))) {
@@ -1044,7 +1005,7 @@ static int tpm_rsa_pub_enc(int flen,
 	DBG("%s: writing out %d bytes as bound data", __FUNCTION__, out_len);
 
 	memcpy(to, out, out_len);
-	p_tspi_Context_FreeMemory(hContext, out);
+	Tspi_Context_FreeMemory(hContext, out);
 
 	return out_len;
 }
@@ -1085,7 +1046,7 @@ static int tpm_rsa_priv_enc(int flen,
 	}
 
 	if (app_data->hHash == NULL_HHASH) {
-		if ((result = p_tspi_Context_CreateObject(hContext,
+		if ((result = Tspi_Context_CreateObject(hContext,
 							  TSS_OBJECT_TYPE_HASH,
 							  TSS_HASH_OTHER,
 							  &app_data->hHash))) {
@@ -1109,12 +1070,12 @@ static int tpm_rsa_priv_enc(int flen,
 		return 0;
 	}
 
-	if ((result = p_tspi_Hash_SetHashValue(app_data->hHash, flen, from))) {
+	if ((result = Tspi_Hash_SetHashValue(app_data->hHash, flen, from))) {
 		TSSerr(TPM_F_TPM_RSA_PRIV_ENC, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
-	if ((result = p_tspi_Hash_Sign(app_data->hHash, app_data->hKey,
+	if ((result = Tspi_Hash_Sign(app_data->hHash, app_data->hKey,
 				       &sig_len, &sig))) {
 		TSSerr(TPM_F_TPM_RSA_PRIV_ENC, TPM_R_REQUEST_FAILED);
 		DBG("result = 0x%x (%s)", result,
@@ -1125,7 +1086,7 @@ static int tpm_rsa_priv_enc(int flen,
 	DBG("%s: writing out %d bytes as a signature", __FUNCTION__, sig_len);
 
 	memcpy(to, sig, sig_len);
-	p_tspi_Context_FreeMemory(hContext, sig);
+	Tspi_Context_FreeMemory(hContext, sig);
 
 	return sig_len;
 }
@@ -1190,7 +1151,7 @@ static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
 	}
 
 	/* Create the new key object */
-	if ((result = p_tspi_Context_CreateObject(hContext,
+	if ((result = Tspi_Context_CreateObject(hContext,
 						  TSS_OBJECT_TYPE_RSAKEY,
 						  initFlags, &hKey))) {
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
@@ -1198,39 +1159,39 @@ static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
 	}
 
 	/* set the signature scheme */
-	if ((result = p_tspi_SetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
+	if ((result = Tspi_SetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_SIGSCHEME,
 					     sigScheme))) {
-		p_tspi_Context_CloseObject(hContext, hKey);
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
 	/* set the encryption scheme */
-	if ((result = p_tspi_SetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
+	if ((result = Tspi_SetAttribUint32(hKey, TSS_TSPATTRIB_KEY_INFO,
 					     TSS_TSPATTRIB_KEYINFO_ENCSCHEME,
 					     encScheme))) {
-		p_tspi_Context_CloseObject(hContext, hKey);
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
 	/* Call create key using the new object */
-	if ((result = p_tspi_Key_CreateKey(hKey, hSRK, NULL))) {
-		p_tspi_Context_CloseObject(hContext, hKey);
+	if ((result = Tspi_Key_CreateKey(hKey, hSRK, NULL))) {
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
 	if (!fill_out_rsa_object(rsa, hKey)) {
-		p_tspi_Context_CloseObject(hContext, hKey);
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
 	/* Load the key into the chip so other functions don't need to */
-	if ((result = p_tspi_Key_LoadKey(hKey, hSRK))) {
-		p_tspi_Context_CloseObject(hContext, hKey);
+	if ((result = Tspi_Key_LoadKey(hKey, hSRK))) {
+		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
@@ -1248,23 +1209,23 @@ static int tpm_rand_bytes(unsigned char *buf, int num)
 	DBG("%s getting %d bytes", __FUNCTION__, num);
 
 	if (num - total_requested > 4096) {
-		if ((result = p_tspi_TPM_GetRandom(hTPM, 4096, &rand_data))) {
+		if ((result = Tspi_TPM_GetRandom(hTPM, 4096, &rand_data))) {
 			TSSerr(TPM_F_TPM_RAND_BYTES, TPM_R_REQUEST_FAILED);
 			return 0;
 		}
 
 		memcpy(&buf[total_requested], rand_data, 4096);
-		p_tspi_Context_FreeMemory(hContext, rand_data);
+		Tspi_Context_FreeMemory(hContext, rand_data);
 		total_requested += 4096;
 	}
 
-	if ((result = p_tspi_TPM_GetRandom(hTPM, num - total_requested, &rand_data))) {
+	if ((result = Tspi_TPM_GetRandom(hTPM, num - total_requested, &rand_data))) {
 		TSSerr(TPM_F_TPM_RAND_BYTES, TPM_R_REQUEST_FAILED);
 		return 0;
 	}
 
 	memcpy(buf + total_requested, rand_data, num - total_requested);
-	p_tspi_Context_FreeMemory(hContext, rand_data);
+	Tspi_Context_FreeMemory(hContext, rand_data);
 
 	return 1;
 }
@@ -1285,7 +1246,7 @@ static void tpm_rand_seed(const void *buf, int num)
 	/* There's a hard maximum of 255 bytes allowed to be sent to the TPM on a TPM_StirRandom
 	 * call.  Use all the bytes in  buf, but break them in to 255 or smaller byte chunks */
 	while (num - total_stirred > 255) {
-		if ((result = p_tspi_TPM_StirRandom(hTPM, 255, buf + total_stirred))) {
+		if ((result = Tspi_TPM_StirRandom(hTPM, 255, buf + total_stirred))) {
 			TSSerr(TPM_F_TPM_RAND_SEED, TPM_R_REQUEST_FAILED);
 			return;
 		}
@@ -1293,7 +1254,7 @@ static void tpm_rand_seed(const void *buf, int num)
 		total_stirred += 255;
 	}
 
-	if ((result = p_tspi_TPM_StirRandom(hTPM, num - total_stirred, buf + total_stirred))) {
+	if ((result = Tspi_TPM_StirRandom(hTPM, num - total_stirred, buf + total_stirred))) {
 		TSSerr(TPM_F_TPM_RAND_SEED, TPM_R_REQUEST_FAILED);
 	}
 
