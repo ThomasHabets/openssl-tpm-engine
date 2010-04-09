@@ -698,6 +698,8 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 		return NULL;
 	}
 
+	EVP_PKEY_assign_RSA(pkey, rsa);
+
 	return pkey;
 }
 
