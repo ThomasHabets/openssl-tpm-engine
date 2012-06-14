@@ -49,7 +49,7 @@ static int tpm_engine_init(ENGINE *);
 static int tpm_engine_finish(ENGINE *);
 static int tpm_engine_ctrl(ENGINE *, int, long, void *, void (*)());
 static EVP_PKEY *tpm_engine_load_key(ENGINE *, const char *, UI_METHOD *, void *);
-static char *tpm_engine_get_auth(UI_METHOD *, char *, int, char *);
+static char *tpm_engine_get_auth(UI_METHOD *, char *, int, char *, void *);
 
 #ifndef OPENSSL_NO_RSA
 /* rsa functions */
@@ -243,7 +243,7 @@ void ENGINE_load_tpm(void)
 	ERR_clear_error();
 }
 
-int tpm_load_srk(UI_METHOD *ui)
+int tpm_load_srk(UI_METHOD *ui, void *cb_data)
 {
 	TSS_RESULT result;
 	UINT32 authusage;
@@ -299,7 +299,8 @@ int tpm_load_srk(UI_METHOD *ui)
 		return 0;
 	}
 
-	if (!tpm_engine_get_auth(ui, (char *)auth, 128, "SRK authorization: ")) {
+	if (!tpm_engine_get_auth(ui, (char *)auth, 128, "SRK authorization: ",
+				cb_data)) {
 		Tspi_Context_CloseObject(hContext, hSRK);
 		free(auth);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
@@ -441,7 +442,7 @@ err:
 }
 
 static char *tpm_engine_get_auth(UI_METHOD *ui_method, char *auth, int maxlen,
-				 char *input_string)
+				 char *input_string, void *cb_data)
 {
 	UI *ui;
 
@@ -450,6 +451,7 @@ static char *tpm_engine_get_auth(UI_METHOD *ui_method, char *auth, int maxlen,
 	ui = UI_new();
 	if (ui_method)
 		UI_set_method(ui, ui_method);
+	UI_add_user_data(ui, cb_data);
 
 	if (!UI_add_input_string(ui, input_string, 0, auth, 0, maxlen)) {
 		TSSerr(TPM_F_TPM_ENGINE_GET_AUTH, TPM_R_UI_METHOD_FAILED);
@@ -582,7 +584,7 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 		return NULL;
 	}
 
-	if (!tpm_load_srk(ui)) {
+	if (!tpm_load_srk(ui, cb_data)) {
 		TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_SRK_LOAD_FAILED);
 		return NULL;
 	}
@@ -633,7 +635,8 @@ static EVP_PKEY *tpm_engine_load_key(ENGINE *e, const char *key_id,
 		}
 
 		if (!tpm_engine_get_auth(ui, (char *)auth, 128,
-					 "TPM Key Password: ")) {
+					 "TPM Key Password: ",
+					 cb_data)) {
 			Tspi_Context_CloseObject(hContext, hKey);
 			free(auth);
 			TSSerr(TPM_F_TPM_ENGINE_LOAD_KEY, TPM_R_REQUEST_FAILED);
@@ -1147,7 +1150,7 @@ static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
 	}
 
 	/* Load the parent key (SRK) which will wrap the new key */
-	if (!tpm_load_srk(NULL)) {
+	if (!tpm_load_srk(NULL, NULL)) {
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_SRK_LOAD_FAILED);
 		return 0;
 	}
