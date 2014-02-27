@@ -304,6 +304,7 @@ int tpm_load_srk(UI_METHOD *ui, void *cb_data)
 		Tspi_Context_CloseObject(hContext, hSRK);
 		free(auth);
 		TSSerr(TPM_F_TPM_LOAD_SRK, TPM_R_REQUEST_FAILED);
+		return 0;
 	}
 
 	/* secret_mode is a global that may be set by engine ctrl
@@ -807,6 +808,24 @@ static int tpm_rsa_finish(RSA *rsa)
 
 	DBG("%s", __FUNCTION__);
 
+	if (!app_data)
+		return 1;
+
+	if (app_data->hHash) {
+		Tspi_Context_CloseObject(hContext, app_data->hHash);
+		app_data->hHash = NULL_HHASH;
+	}
+
+	if (app_data->hKey) {
+		Tspi_Context_CloseObject(hContext, app_data->hKey);
+		app_data->hKey = NULL_HKEY;
+	}
+
+	if (app_data->hEncData) {
+		Tspi_Context_CloseObject(hContext, app_data->hEncData);
+		app_data->hEncData = NULL_HENCDATA;
+	}
+
 	OPENSSL_free(app_data);
 
 	return 1;
@@ -1182,7 +1201,7 @@ static int tpm_rsa_keygen(RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb)
 	}
 
 	/* Call create key using the new object */
-	if ((result = Tspi_Key_CreateKey(hKey, hSRK, NULL))) {
+	if ((result = Tspi_Key_CreateKey(hKey, hSRK, NULL_HPCRS))) {
 		Tspi_Context_CloseObject(hContext, hKey);
 		TSSerr(TPM_F_TPM_RSA_KEYGEN, TPM_R_REQUEST_FAILED);
 		return 0;
