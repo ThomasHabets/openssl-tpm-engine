@@ -359,7 +359,7 @@ int main(int argc, char **argv)
 			}
 
 			if (EVP_read_pw_string(authdata, 128,
-						"Enter Password: ", 1)) {
+						"Enter Key Usage Password: ", 1)) {
 				printf("Passwords do not match.\n");
 				free(authdata);
 				Tspi_Context_Close(hContext);
@@ -388,35 +388,56 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if ((result = Tspi_Context_CreateObject(hContext,
-						TSS_OBJECT_TYPE_POLICY,
-						TSS_POLICY_MIGRATION,
-						&keyMigrationPolicy))) {
-		print_error("Tspi_Context_CreateObject", result);
-		Tspi_Context_Close(hContext);
-		exit(result);
-	}
-
-	if ((result = Tspi_Policy_SetSecret(keyMigrationPolicy,
-					    TSS_SECRET_MODE_NONE,
-					    0, NULL))) {
-		print_error("Tspi_Policy_SetSecret", result);
-		Tspi_Context_Close(hContext);
-		exit(result);
-	}
-
-	if ((result = Tspi_Policy_AssignToObject(keyMigrationPolicy, hKey))) {
-		print_error("Tspi_Policy_AssignToObject", result);
-		Tspi_Context_CloseObject(hContext, hKey);
-		Tspi_Context_Close(hContext);
-		exit(result);
-	}
-
 	// Create or Wrap Key
 	if (wrap) {
 		char n[256], p[128];
 		unsigned int size_n, size_p;
 		BYTE *pubSRK;
+
+		/*Set migration policy needed to wrap the key*/
+		if ((result = Tspi_Context_CreateObject(hContext,
+						TSS_OBJECT_TYPE_POLICY,
+						TSS_POLICY_MIGRATION,
+						&keyMigrationPolicy))) {
+			print_error("Tspi_Context_CreateObject", result);
+			Tspi_Context_Close(hContext);
+			exit(result);
+		}
+		if (auth) {
+			char *authdata = calloc(1, 128);
+
+			if (!authdata) {
+				fprintf(stderr, "malloc failed.\n");
+				Tspi_Context_Close(hContext);
+				exit(result);
+			}
+
+			if (EVP_read_pw_string(authdata, 128,
+						"Enter Key Migration Password: ", 1)) {
+				printf("Passwords do not match.\n");
+				free(authdata);
+				Tspi_Context_Close(hContext);
+				exit(result);
+			}
+
+			if ((result = Tspi_Policy_SetSecret(keyMigrationPolicy,
+							    TSS_SECRET_MODE_PLAIN,
+							    strlen(authdata),
+							    (BYTE *)authdata))) {
+				print_error("Tspi_Policy_SetSecret", result);
+				Tspi_Context_Close(hContext);
+				exit(result);
+			}
+
+			free(authdata);
+		}
+
+		if ((result = Tspi_Policy_AssignToObject(keyMigrationPolicy, hKey))) {
+			print_error("Tspi_Policy_AssignToObject", result);
+			Tspi_Context_CloseObject(hContext, hKey);
+			Tspi_Context_Close(hContext);
+			exit(result);
+		}
 
 		/* Pull the PubKRK out of the TPM */
 		if ((result = Tspi_Key_GetPubKey(hSRK, &size_n, &pubSRK))) {

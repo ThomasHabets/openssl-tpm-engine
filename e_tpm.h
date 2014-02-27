@@ -25,6 +25,7 @@
 #define NULL_HHASH	0
 #define NULL_HENCDATA	0
 #define NULL_HPOLICY	0
+#define NULL_HPCRS	0
 
 void ERR_load_TPM_strings(void);
 void ERR_unload_TPM_strings(void);
